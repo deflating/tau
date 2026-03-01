@@ -749,17 +749,22 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
     };
 
     const onListening = (port: number) => {
-      // Get local IP for display
+      // Get local IP for display — prefer LAN (192.168/10.x) over VPN (100.x)
       const nets = require("node:os").networkInterfaces();
       let localIp = "localhost";
+      let fallbackIp = "";
       for (const name of Object.keys(nets)) {
         for (const net of nets[name] || []) {
           if (net.family === "IPv4" && !net.internal) {
-            localIp = net.address;
-            break;
+            if (net.address.startsWith("192.168.") || net.address.startsWith("10.")) {
+              localIp = net.address;
+            } else if (!fallbackIp) {
+              fallbackIp = net.address;
+            }
           }
         }
       }
+      if (localIp === "localhost" && fallbackIp) localIp = fallbackIp;
       mirrorUrl = `http://${localIp}:${PORT}`;
       console.log(`[Mirror] Tau mirror server running on ${mirrorUrl}`);
       ctx.ui.setStatus("mirror", `Mirror: ${localIp}:${PORT}`);
