@@ -1,36 +1,47 @@
 /**
- * Theme system — dark / light mode only
+ * Theme system — four themes: two light, two dark
  */
 
 export const themes = {
-  dark: {
-    name: 'Dark',
+  night: {
+    name: 'Night',
     dark: true,
-    vars: {},  // Dark is the CSS default, no overrides needed
+    vars: {},
   },
-  light: {
-    name: 'Light',
+  midnight: {
+    name: 'Midnight',
+    dark: true,
+    vars: {},
+  },
+  terracotta: {
+    name: 'Terracotta',
     dark: false,
-    vars: {},  // Light mode uses [data-theme="light"] in CSS
+    vars: {},
+  },
+  sage: {
+    name: 'Sage',
+    dark: false,
+    vars: {},
   },
 };
 
 export function applyTheme(themeId) {
   const root = document.documentElement;
-  if (themeId === 'light') {
-    root.setAttribute('data-theme', 'light');
-  } else {
-    root.removeAttribute('data-theme');
-  }
+  // Validate
+  if (!themes[themeId]) themeId = 'night';
+  root.setAttribute('data-theme', themeId);
   localStorage.setItem('tau-theme', themeId);
 }
 
 export function getCurrentTheme() {
   const saved = localStorage.getItem('tau-theme');
-  if (saved) return saved;
+  // Migrate old values
+  if (saved === 'dark') return 'night';
+  if (saved === 'light') return 'terracotta';
+  if (saved && themes[saved]) return saved;
   // Auto-detect from OS
-  if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'light';
-  return 'dark';
+  if (window.matchMedia?.('(prefers-color-scheme: light)').matches) return 'terracotta';
+  return 'night';
 }
 
 // Listen for OS theme changes if no explicit preference saved
@@ -38,11 +49,7 @@ if (!localStorage.getItem('tau-theme')) {
   window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', (e) => {
     if (!localStorage.getItem('tau-theme')) {
       const root = document.documentElement;
-      if (e.matches) {
-        root.setAttribute('data-theme', 'light');
-      } else {
-        root.removeAttribute('data-theme');
-      }
+      root.setAttribute('data-theme', e.matches ? 'terracotta' : 'night');
     }
   });
 }
