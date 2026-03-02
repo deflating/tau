@@ -126,32 +126,103 @@ export default function (pi: ExtensionAPI) {
   }
 
   // Also capture context from session events
+  // Auto-title: collect user messages and generate a title after a few turns
+  let turnCount = 0;
+  let titleSet = false;
+  let userMessages: string[] = [];
+
   pi.on("session_start", async (_event, ctx) => {
     latestCtx = ctx;
     turnCount = 0;
-    nameReminderSent = false;
+    titleSet = false;
+    userMessages = [];
   });
 
-  // Session name reminder — nudge agent after 3 turns if still untitled
-  let turnCount = 0;
-  let nameReminderSent = false;
-  const NAME_REMINDER_TURNS = 3;
-
-  pi.on("turn_start", async (event, _ctx) => {
+  pi.on("turn_start", async (_event, _ctx) => {
     turnCount++;
-    if (nameReminderSent || turnCount < NAME_REMINDER_TURNS) return;
+  });
+
+  // Capture user messages for title generation via message_start
+  pi.on("message_start", async (event, _ctx) => {
+    if (titleSet) return;
+    const msg = event.message;
+    if (!msg || msg.role !== "user") return;
+    const content = msg.content;
+    let text = "";
+    if (typeof content === "string") text = content;
+    else if (Array.isArray(content)) {
+      const tb = content.find((b: any) => b.type === "text");
+      if (tb) text = tb.text;
+    }
+    if (text) userMessages.push(text.substring(0, 300));
+  });
+
+  pi.on("turn_end", async (_event, _ctx) => {
+    if (titleSet || turnCount < 2) return;
 
     const sessionName = pi.getSessionName();
-    if (sessionName && sessionName !== "New Session" && sessionName !== "Untitled") return;
+    if (sessionName && sessionName !== "New Session" && sessionName !== "Untitled") {
+      titleSet = true;
+      return;
+    }
 
-    nameReminderSent = true;
-    return {
-      systemPrompt: event.systemPrompt +
-        "\n\n[Tau] This session is still unnamed after several turns. " +
-        "Please name it with a short, descriptive title using the set_session_name RPC command. " +
-        "Do this silently without mentioning it to the user.",
-    };
+    // Generate title from collected messages
+    const title = generateSessionTitle(userMessages);
+    if (title) {
+      pi.setSessionName(title);
+      titleSet = true;
+      // Broadcast to connected clients
+      broadcast({ type: "event", event: { type: "session_name", name: title } });
+    }
   });
+
+  function generateSessionTitle(messages: string[]): string | null {
+    if (messages.length === 0) return null;
+
+    // Find first substantive message (skip greetings and memory instructions)
+    const greetings = /^(hey|hello|hi|morning|good morning|howdy|yo|sup)[\s!.:,]*$/i;
+    const memoryInstructions = /read (your |the )?(memory|seed|persona|working) files/i;
+
+    let bestMessage = "";
+    for (const msg of messages) {
+      const cleaned = msg.trim();
+      if (greetings.test(cleaned)) continue;
+      if (memoryInstructions.test(cleaned)) continue;
+      if (cleaned.length < 10) continue;
+      bestMessage = cleaned;
+      break;
+    }
+
+    if (!bestMessage) {
+      // Fall back to first message with any content
+      bestMessage = messages.find(m => m.trim().length > 0) || "";
+    }
+
+    if (!bestMessage) return null;
+
+    // Extract a clean title: first sentence or clause, max ~60 chars
+    let title = bestMessage
+      .replace(/^(ok |okay |so |actually |hey |please |can you |could you |i want(ed)? to |i wanna |let'?s )/i, "")
+      .replace(/\n.*/s, "") // first line only
+      .trim();
+
+    // Take first sentence
+    const sentenceEnd = title.search(/[.!?]\s/);
+    if (sentenceEnd > 10 && sentenceEnd < 80) {
+      title = title.substring(0, sentenceEnd);
+    }
+
+    // Truncate cleanly
+    if (title.length > 60) {
+      const spaceIdx = title.lastIndexOf(" ", 57);
+      title = title.substring(0, spaceIdx > 20 ? spaceIdx : 57) + "…";
+    }
+
+    // Capitalize first letter
+    title = title.charAt(0).toUpperCase() + title.slice(1);
+
+    return title;
+  }
 
   // ═══════════════════════════════════════
   // Build state snapshot for new connections

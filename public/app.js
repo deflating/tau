@@ -239,6 +239,13 @@ function handleRPCEvent(event) {
     case 'extension_error':
       messageRenderer.renderError(`Extension error: ${event.error}`);
       break;
+    case 'session_name':
+      // Auto-title: update sidebar with new session name
+      if (event.name) {
+        const activeItem = document.querySelector('.session-item.active .session-title');
+        if (activeItem) activeItem.textContent = event.name;
+      }
+      break;
   }
 }
 
