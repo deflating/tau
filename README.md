@@ -31,7 +31,7 @@ pi install git:github.com/mattkennelly/tau
 2. Open the URL shown in the status bar (default: `http://localhost:3001`)
 3. That's it
 
-On your phone, type `/qr` in the terminal to show a QR code.
+Type `/qr` in the terminal to show a QR code and scan it to access via your phone.
 
 ## Features
 
@@ -72,35 +72,6 @@ On your phone, type `/qr` in the terminal to show a QR code.
 ### Compaction
 - Manual context compaction with status display
 - Auto-compaction support
-
-### Themes
-Six built-in themes with frosted glass design:
-
-| Theme | Style |
-|-------|-------|
-| **Dusk** | Clean neutral dark (default) |
-| **Dawn** | Warm blue dark |
-| **Midnight** | OLED black |
-| **Clean** | Apple-style light with cyan-blue accents |
-| **Terracotta** | Warm light |
-| **Sage** | Warm olive-green light |
-
-Theme picker shows colour palette dots. Frosted glass header and input area with `backdrop-filter` blur.
-
-### Mobile
-Fully optimised mobile experience — not just responsive, but rethought for touch:
-
-- Slide-over sidebar (80% width) with swipe-from-edge gesture
-- Per-theme tinted sidebar backgrounds
-- iOS-native session list styling (proper font sizes, flat dividers, touch targets)
-- Full-width assistant messages
-- Model picker in header, cost/tokens collapsible above input
-- Copy button always visible as a small icon
-- Auto-reconnect WebSocket on app resume
-- 16px input font to prevent iOS zoom
-- No autofocus — keyboard stays out of the way
-
-See [MOBILE.md](MOBILE.md) for the full list of mobile-specific customisations.
 
 ### PWA
 - Installable as a standalone app on iOS, Android, and macOS
