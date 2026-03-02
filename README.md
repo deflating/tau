@@ -33,34 +33,6 @@ pi install git:github.com/mattkennelly/tau
 
 On your phone, type `/qr` in the terminal to show a QR code.
 
-![QR code](docs/images/qr.png)
-
-## Screenshots
-
-### Dark mode
-
-![Dark mode](docs/images/dark.png)
-
-### Light mode
-
-![Light mode](docs/images/light.png)
-
-### Mobile
-
-![Mobile](docs/images/mobile.png)
-
-### Image attachments (mobile)
-
-![Attach](docs/images/mobile-attach.png)
-
-### Session browser
-
-![Sessions](docs/images/sessions.png)
-
-### Settings
-
-![Settings](docs/images/settings.png)
-
 ## Features
 
 ### Chat
@@ -68,34 +40,72 @@ On your phone, type `/qr` in the terminal to show a QR code.
 - Streaming responses with typing indicator
 - Image attachments (paste, drag & drop, or button)
 - Copy any message with one click
+- Inline diff viewer for edit tool calls (red/green lines)
 - Scroll-to-bottom button with new message indicator
+- Message queuing — type while the agent is working, messages queue and auto-send
 
-### Session management
+### Session Management
 - Browse all past sessions grouped by project
+- Full-text search across all session history with highlighted snippets
 - Sorted by last modified (most recent first)
 - Live session marked with a green dot
 - Historical sessions are read-only
 - Inline session rename
+- Favourite sessions, tags, and filtering
 
-### Model & thinking
-- Model picker with all available models
-- Cycle model and thinking level from the input area
-- Token usage percentage with warning/critical states
-- Cost display per session
+### Model & Thinking
+- Model picker with search/filter and keyboard support
+- Thinking level toggle (off/low/medium/high)
+- Token usage percentage with context window visualiser
+- Cost tracking per session
 
-### Commands
-- Command palette (Export HTML, Session Stats)
-- All commands sent through the same Pi process
+### Voice Input
+- Mic button in the input area using Web Speech API (on-device dictation)
+- Live transcription into the textarea
+- Pulses red while recording
 
-### Appearance
-- Dark and light mode
-- Follows system preference by default
-- Glassmorphism design with warm earthy accents
+### File Browser
+- Right sidebar with lazy-loaded file tree
+- Navigate directories, open files natively
+- Drag files onto the input to insert their path
+
+### Compaction
+- Manual context compaction with status display
+- Auto-compaction support
+
+### Themes
+Six built-in themes with frosted glass design:
+
+| Theme | Style |
+|-------|-------|
+| **Dusk** | Clean neutral dark (default) |
+| **Dawn** | Warm blue dark |
+| **Midnight** | OLED black |
+| **Clean** | Apple-style light with cyan-blue accents |
+| **Terracotta** | Warm light |
+| **Sage** | Warm olive-green light |
+
+Theme picker shows colour palette dots. Frosted glass header and input area with `backdrop-filter` blur.
 
 ### Mobile
-- Responsive layout
-- Sidebar collapsed by default on small screens
-- Handles iOS Safari viewport correctly
+Fully optimised mobile experience — not just responsive, but rethought for touch:
+
+- Slide-over sidebar (80% width) with swipe-from-edge gesture
+- Per-theme tinted sidebar backgrounds
+- iOS-native session list styling (proper font sizes, flat dividers, touch targets)
+- Full-width assistant messages
+- Model picker in header, cost/tokens collapsible above input
+- Copy button always visible as a small icon
+- Auto-reconnect WebSocket on app resume
+- 16px input font to prevent iOS zoom
+- No autofocus — keyboard stays out of the way
+
+See [MOBILE.md](MOBILE.md) for the full list of mobile-specific customisations.
+
+### PWA
+- Installable as a standalone app on iOS, Android, and macOS
+- Custom app icons
+- Service worker with network-first caching
 
 ## Configuration
 

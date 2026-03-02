@@ -2,24 +2,28 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Tau</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>τ</text></svg>">
-  <!-- Using system fonts: SF Pro, SF Mono -->
+  <link rel="icon" type="image/png" href="icons/tau-192.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Tau">
+  <meta name="theme-color" content="#f5f3ef">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="app-layout">
-    <!-- Sidebar -->
+    <!-- Left Sidebar -->
     <div class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="mode-toggle" id="mode-toggle">
-          <span class="mode-link active" title="Chat">τ</span>
+          <span class="mode-link active" title="Chat"><img src="icons/tau-192.png" alt="τ" class="tau-icon"></span>
         </div>
         <input type="text" id="session-search-input" class="sidebar-search-input" placeholder="Search..." autocomplete="off" />
         <div class="sidebar-actions">
           <button class="icon-btn" id="refresh-sessions-btn" title="Refresh sessions">↻</button>
-          <button class="new-session-btn" id="new-session-btn" title="New Session">+</button>
         </div>
       </div>
       <div class="session-list" id="session-list">
@@ -36,24 +40,46 @@
       <div class="header">
         <div class="header-left">
           <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">☰</button>
-          <button class="model-btn" id="model-btn" title="Switch model"></button>
+          <div class="model-dropdown" id="model-dropdown">
+            <button class="model-dropdown-btn" id="model-dropdown-btn" title="Switch model">
+              <span class="model-dropdown-label" id="model-dropdown-label">model</span>
+              <svg class="model-dropdown-chevron" width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1L5 5L9 1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <div class="model-dropdown-menu hidden" id="model-dropdown-menu"></div>
+          </div>
+          <button class="thinking-tag" id="thinking-btn" title="Cycle thinking level">off</button>
         </div>
         <div class="header-right">
           <div class="session-cost" id="session-cost" title="Session cost"></div>
-          <div class="token-usage" id="token-usage" title="Context window usage"></div>
-
+          <div style="position: relative;">
+            <div class="token-usage" id="token-usage" title="Click for context breakdown"></div>
+            <div class="context-viz hidden" id="context-viz">
+              <div class="context-viz-title">Context Window</div>
+              <div class="context-bar" id="context-bar"></div>
+              <div class="context-legend" id="context-legend"></div>
+              <div class="context-viz-footer">
+                <span id="context-viz-used"></span>
+                <span id="context-viz-total"></span>
+              </div>
+            </div>
+          </div>
           <div class="status">
             <span class="status-indicator" id="status-indicator"></span>
             <span class="status-text" id="status-text">Connecting...</span>
           </div>
-          <button class="settings-btn" id="settings-btn" title="Settings">⚙</button>
+          <button class="icon-btn" id="file-sidebar-toggle" title="Files">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+          </button>
+          <button class="settings-btn" id="settings-btn" title="Settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
         </div>
       </div>
 
       <!-- Messages Container -->
       <div class="messages" id="messages">
         <div class="welcome">
-          <div class="welcome-icon">τ</div>
+          <div class="welcome-icon"><img src="icons/tau-192.png" alt="τ" class="tau-icon-welcome"></div>
           <p>Welcome to Tau</p>
           <p class="hint">Type a message below to start chatting with Pi, or select a session from the sidebar.</p>
           <div class="shortcuts-hint">
@@ -69,48 +95,64 @@
         <span class="scroll-bottom-icon">↓</span>
       </button>
 
-      <!-- Typing indicator -->
-      <div class="typing-indicator hidden" id="typing-indicator">
-        <span class="typing-dot"></span>
-        <span class="typing-dot"></span>
-        <span class="typing-dot"></span>
-      </div>
+      <!-- Typing indicator (hidden, kept for JS reference) -->
+      <div class="typing-indicator hidden" id="typing-indicator"></div>
 
       <!-- Input Area -->
       <div class="input-area">
-        <!-- Image preview strip -->
+        <button class="mobile-context-toggle" id="mobile-context-toggle">
+          <svg width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 5L5 1L9 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <div class="mobile-model-bar" id="mobile-model-bar"></div>
+        <div class="queued-messages hidden" id="queued-messages"></div>
         <div class="image-previews hidden" id="image-previews"></div>
         <form id="chat-form">
           <div class="input-left-actions">
-            <button type="button" class="input-icon-btn" id="command-btn" title="Commands">
+            <button type="button" class="input-icon-btn" id="command-btn" title="Commands" tabindex="-1">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>
             </button>
-            <button type="button" class="input-icon-btn" id="attach-btn" title="Attach image">
+            <button type="button" class="input-icon-btn" id="attach-btn" title="Attach image" tabindex="-1">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
             </button>
-            <button type="button" class="input-icon-btn" id="cycle-thinking-btn" title="Cycle thinking">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a8 8 0 0 0-8 8c0 3.4 2.1 6.3 5 7.4V20h6v-2.6c2.9-1.1 5-4 5-7.4a8 8 0 0 0-8-8z"/><path d="M10 22h4"/></svg>
-            </button>
-            <button type="button" class="input-icon-btn" id="cycle-model-btn" title="Cycle model">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-            </button>
+
             <input type="file" id="image-input" accept="image/*" multiple style="display:none" />
           </div>
-          <textarea 
-            id="message-input" 
-            placeholder="Type a message... (Enter to send, Shift+Enter for newline)" 
-            autocomplete="off"
-            rows="2"
-            autofocus
-          ></textarea>
+          <div class="input-bubble">
+            <textarea
+              id="message-input"
+              placeholder="Type a message... (Enter to send, Shift+Enter for newline)"
+              autocomplete="off"
+              rows="2"
+
+            ></textarea>
+            <button type="button" class="input-mic-btn" id="mic-btn" title="Voice input" tabindex="-1">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+            </button>
+          </div>
           <div class="input-actions">
-            <button type="submit" id="send-btn" title="Send message">
+            <button type="submit" id="send-btn" title="Send message" tabindex="-1">
               <span class="send-icon">↑</span>
             </button>
-            <button type="button" id="abort-btn" class="hidden" title="Abort (Esc)">■</button>
+            <button type="button" id="abort-btn" class="hidden" title="Abort (Esc)" tabindex="-1">■</button>
           </div>
         </form>
       </div>
+    </div>
+
+    <!-- File Browser (right sidebar) -->
+    <div class="file-sidebar collapsed" id="file-sidebar">
+      <div class="file-sidebar-header">
+        <span class="file-sidebar-title" id="file-sidebar-title">Files</span>
+        <button class="icon-btn" id="file-sidebar-up" title="Parent directory">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></svg>
+        </button>
+        <button class="icon-btn" id="file-sidebar-finder" title="Open in file manager">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+        <button class="icon-btn" id="file-sidebar-close" title="Close">✕</button>
+      </div>
+      <div class="file-sidebar-path" id="file-sidebar-path" title=""></div>
+      <div class="file-list" id="file-list"></div>
     </div>
   </div>
 
@@ -124,12 +166,10 @@
       <button class="settings-close" id="settings-close">✕</button>
     </div>
     <div class="settings-body">
-      <!-- Appearance -->
       <div class="settings-section">
         <div class="settings-section-title">Appearance</div>
         <div class="theme-grid" id="theme-grid"></div>
       </div>
-      <!-- Agent -->
       <div class="settings-section">
         <div class="settings-section-title">Agent</div>
         <div class="settings-row" id="setting-auto-compact">
@@ -141,7 +181,6 @@
           <button class="settings-value-btn" id="btn-thinking-level"></button>
         </div>
       </div>
-      <!-- Display -->
       <div class="settings-section">
         <div class="settings-section-title">Display</div>
         <div class="settings-row">
@@ -149,9 +188,10 @@
           <button class="settings-toggle on" id="toggle-show-thinking"></button>
         </div>
       </div>
+      <div class="settings-section">
 
+      </div>
     </div>
-
   </div>
 
   <!-- Command Palette -->
@@ -159,13 +199,6 @@
   <div class="command-palette hidden" id="command-palette">
     <div class="command-palette-header">Commands</div>
     <div class="command-list" id="command-list"></div>
-  </div>
-
-  <!-- Model Picker -->
-  <div class="model-picker-overlay hidden" id="model-picker-overlay"></div>
-  <div class="model-picker hidden" id="model-picker">
-    <div class="model-picker-header">Model</div>
-    <div class="model-list" id="model-list"></div>
   </div>
 
   <!-- Dialog Container -->

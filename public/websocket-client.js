@@ -15,6 +15,11 @@ export class WebSocketClient extends EventTarget {
 
   connect() {
     this.isIntentionallyClosed = false;
+    // Close any stale socket before reconnecting
+    if (this.ws) {
+      try { this.ws.close(); } catch (e) {}
+      this.ws = null;
+    }
     this.ws = new WebSocket(this.url);
 
     this.ws.onopen = () => {
@@ -52,6 +57,12 @@ export class WebSocketClient extends EventTarget {
     if (this.ws) {
       this.ws.close();
     }
+  }
+
+  // Force reconnect — resets attempt counter and connects fresh
+  forceReconnect() {
+    this.reconnectAttempts = 0;
+    this.connect();
   }
 
   attemptReconnect() {

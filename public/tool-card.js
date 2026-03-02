@@ -19,6 +19,8 @@ export class ToolCardRenderer {
     const argsJson = this.formatJson(args);
     const isExpanded = (status === 'streaming' || status === 'pending');
 
+    const isEdit = (toolName === 'edit' || toolName === 'Edit') && args && (args.oldText || args.old_text) && (args.newText || args.new_text);
+
     card.innerHTML = `
       <div class="tool-card-header" onclick="this.parentElement.querySelector('.tool-card-body').classList.toggle('expanded'); this.querySelector('.tool-card-chevron').classList.toggle('expanded')">
         <div class="tool-header-left">
@@ -29,7 +31,7 @@ export class ToolCardRenderer {
         <div class="tool-status ${status}">${status}</div>
       </div>
       <div class="tool-card-body${isExpanded ? ' expanded' : ''}">
-        ${argsJson ? `<div class="tool-args">${this.escapeHtml(argsJson)}</div>` : ''}
+        ${!isEdit && argsJson ? `<div class="tool-args">${this.escapeHtml(argsJson)}</div>` : ''}
         <div class="tool-output-wrapper">
           <div class="tool-output-header">
             <span>Output</span>
@@ -39,6 +41,13 @@ export class ToolCardRenderer {
         </div>
       </div>
     `;
+
+    // Insert diff view for Edit tools
+    if (isEdit) {
+      const diffEl = this.renderDiff(args.oldText || args.old_text, args.newText || args.new_text);
+      const body = card.querySelector('.tool-card-body');
+      body.insertBefore(diffEl, body.firstChild);
+    }
 
     this.container.appendChild(card);
     this.toolCards.set(toolCallId, card);
@@ -159,12 +168,18 @@ export class ToolCardRenderer {
     const body = document.createElement('div');
     body.className = 'tool-card-body';
 
-    const argsJson = this.formatJson(args);
-    if (argsJson) {
-      const argsEl = document.createElement('div');
-      argsEl.className = 'tool-args';
-      argsEl.textContent = argsJson;
-      body.appendChild(argsEl);
+    const isEdit = (toolName === 'edit' || toolName === 'Edit') && args && (args.oldText || args.old_text) && (args.newText || args.new_text);
+
+    if (isEdit) {
+      body.appendChild(this.renderDiff(args.oldText || args.old_text, args.newText || args.new_text));
+    } else {
+      const argsJson = this.formatJson(args);
+      if (argsJson) {
+        const argsEl = document.createElement('div');
+        argsEl.className = 'tool-args';
+        argsEl.textContent = argsJson;
+        body.appendChild(argsEl);
+      }
     }
 
     const outputEl = document.createElement('div');
@@ -226,6 +241,33 @@ export class ToolCardRenderer {
     } catch {
       return String(obj);
     }
+  }
+
+  /** Render a simple inline diff for Edit tool */
+  renderDiff(oldText, newText) {
+    const container = document.createElement('div');
+    container.className = 'tool-diff';
+
+    const oldLines = oldText.split('\n');
+    const newLines = newText.split('\n');
+
+    // Removed lines
+    for (const line of oldLines) {
+      const el = document.createElement('div');
+      el.className = 'diff-line diff-removed';
+      el.textContent = '- ' + line;
+      container.appendChild(el);
+    }
+
+    // Added lines
+    for (const line of newLines) {
+      const el = document.createElement('div');
+      el.className = 'diff-line diff-added';
+      el.textContent = '+ ' + line;
+      container.appendChild(el);
+    }
+
+    return container;
   }
 
   formatResult(result) {

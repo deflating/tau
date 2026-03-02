@@ -42,9 +42,20 @@ export class MessageRenderer {
 
     const div = document.createElement('div');
     div.className = `message user${isHistory ? ' history' : ''}`;
+
+    let imagesHtml = '';
+    if (message.images && message.images.length > 0) {
+      imagesHtml = '<div class="message-images">' +
+        message.images.map(img => {
+          const src = img.data.startsWith('data:') ? img.data : `data:${img.mimeType || 'image/png'};base64,${img.data}`;
+          return `<img class="message-image" src="${src}" alt="Attached image" />`;
+        }).join('') +
+        '</div>';
+    }
+
     div.innerHTML = `
-      <div class="message-content">${this.escapeHtml(message.content)}</div>
-      <button class="message-copy-btn">Copy</button>
+      <div class="message-content">${imagesHtml}${this.escapeHtml(message.content)}</div>
+      <button class="message-copy-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
     `;
     this._setupCopyBtn(div);
     this.container.appendChild(div);
@@ -86,9 +97,9 @@ export class MessageRenderer {
     const streamingClass = isStreaming ? ' streaming' : '';
 
     div.innerHTML = `
-      <div class="message-content${streamingClass}">${contentHtml || '<em style="color: var(--text-dim)">Thinking...</em>'}</div>
+      <div class="message-content${streamingClass}">${contentHtml}</div>
       ${usageHtml}
-      ${!isStreaming ? '<button class="message-copy-btn">Copy</button>' : ''}
+      ${!isStreaming ? '<button class="message-copy-btn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>' : ''}
     `;
 
     if (!isStreaming) this._setupCopyBtn(div);
@@ -174,7 +185,7 @@ export class MessageRenderer {
     if (!messageElement.querySelector('.message-copy-btn')) {
       const btn = document.createElement('button');
       btn.className = 'message-copy-btn';
-      btn.textContent = 'Copy';
+      btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
       messageElement.appendChild(btn);
       this._setupCopyBtn(messageElement);
     }
@@ -213,10 +224,10 @@ export class MessageRenderer {
       const content = messageEl.querySelector('.message-content');
       if (!content) return;
       navigator.clipboard.writeText(content.textContent).then(() => {
-        btn.textContent = '✓';
+        btn.innerHTML = '✓';
         btn.classList.add('copied');
         setTimeout(() => {
-          btn.textContent = 'Copy';
+          btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
           btn.classList.remove('copied');
         }, 1500);
       });

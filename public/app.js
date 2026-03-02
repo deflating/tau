@@ -9,6 +9,7 @@ import { ToolCardRenderer } from './tool-card.js';
 import { DialogHandler } from './dialogs.js';
 import { SessionSidebar } from './session-sidebar.js';
 import { themes, applyTheme, getCurrentTheme } from './themes.js';
+import { FileBrowser } from './file-browser.js';
 
 // Initialize components
 const wsUrl = `ws://${window.location.host}/ws`;
@@ -34,10 +35,11 @@ const statusText = document.getElementById('status-text');
 const sidebarEl = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebar-toggle');
 const sidebarOverlay = document.getElementById('sidebar-overlay');
-const newSessionBtn = document.getElementById('new-session-btn');
+
 const refreshSessionsBtn = document.getElementById('refresh-sessions-btn');
 const sessionSearchInput = document.getElementById('session-search-input');
 const typingIndicator = document.getElementById('typing-indicator');
+
 const sessionCostEl = document.getElementById('session-cost');
 const tokenUsageEl = document.getElementById('token-usage');
 const scrollBottomBtn = document.getElementById('scroll-bottom-btn');
@@ -56,9 +58,53 @@ let unreadCount = 0;
 let isScrolledUp = false;
 let hasNewWhileScrolled = false;
 let lastSentMessage = null; // Track to avoid duplicate rendering in mirror mode
+let lastUsage = null; // Full usage object for context visualiser
 let mirrorActiveSessionFile = null; // The live session file path from the TUI
 let viewingActiveSession = true; // Whether we're viewing the live session or a historical one
 let isMirrorMode = false; // Set when mirror_sync received
+
+// File browser
+const fileSidebar = document.getElementById('file-sidebar');
+const fileSidebarToggle = document.getElementById('file-sidebar-toggle');
+const fileSidebarClose = document.getElementById('file-sidebar-close');
+const fileSidebarUp = document.getElementById('file-sidebar-up');
+const fileList = document.getElementById('file-list');
+const fileSidebarPath = document.getElementById('file-sidebar-path');
+const fileBrowser = new FileBrowser(fileList, fileSidebarPath, messageInput);
+
+fileSidebarToggle.addEventListener('click', () => {
+  const isCollapsed = fileSidebar.classList.toggle('collapsed');
+  if (!isCollapsed && !fileBrowser.currentPath) {
+    fileBrowser.load(); // Load session cwd
+  }
+  localStorage.setItem('tau-file-sidebar', isCollapsed ? 'closed' : 'open');
+});
+
+fileSidebarClose.addEventListener('click', () => {
+  fileSidebar.classList.add('collapsed');
+  localStorage.setItem('tau-file-sidebar', 'closed');
+});
+
+fileSidebarUp.addEventListener('click', () => {
+  const parent = fileBrowser.getParentPath();
+  if (parent) fileBrowser.load(parent);
+});
+
+document.getElementById('file-sidebar-finder').addEventListener('click', () => {
+  if (fileBrowser.currentPath) {
+    fetch('/api/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath: fileBrowser.currentPath }),
+    });
+  }
+});
+
+// Restore file sidebar state
+if (localStorage.getItem('tau-file-sidebar') === 'open') {
+  fileSidebar.classList.remove('collapsed');
+  fileBrowser.load();
+}
 
 
 // ═══════════════════════════════════════
@@ -71,8 +117,20 @@ window.addEventListener('focus', () => {
   document.title = originalTitle;
 });
 
+
+
+
+
 window.addEventListener('blur', () => {
   hasFocus = false;
+});
+
+// Reconnect WebSocket when returning to the app (iOS suspends WS connections)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && wsClient.ws?.readyState !== WebSocket.OPEN) {
+    console.log('[App] Returning to app, reconnecting...');
+    wsClient.forceReconnect();
+  }
 });
 
 // ═══════════════════════════════════════
@@ -223,6 +281,7 @@ function handleAgentEnd() {
   if (!hasFocus) {
     unreadCount++;
     document.title = `(${unreadCount}) ● ${originalTitle}`;
+
   }
 }
 
@@ -230,7 +289,6 @@ let currentStreamingThinking = '';
 
 function handleMessageStart(message) {
   if (message.role === 'assistant') {
-    showTypingIndicator(false);
     currentStreamingText = '';
     currentStreamingThinking = '';
     currentStreamingElement = messageRenderer.renderAssistantMessage(
@@ -292,6 +350,7 @@ function handleMessageEnd(message) {
     }
     if (usage?.input) {
       lastInputTokens = usage.input + (usage.cacheRead || 0);
+      lastUsage = usage;
     }
     updateCostDisplay();
     updateTokenUsage();
@@ -300,7 +359,6 @@ function handleMessageEnd(message) {
 }
 
 function handleToolExecutionStart(event) {
-  showTypingIndicator(false);
   const { toolCallId, toolName, args } = event;
 
   state.addToolExecution(toolCallId, {
@@ -517,12 +575,11 @@ function renderImagePreviews() {
 // Send message (with images)
 // ═══════════════════════════════════════
 
+let messageQueue = [];
+
 function sendMessage() {
   const message = messageInput.value.trim();
-  if (!message || state.isStreaming) return;
-
-  lastSentMessage = message;
-  messageRenderer.renderUserMessage({ content: message });
+  if (!message) return;
 
   messageInput.value = '';
   messageInput.style.height = 'auto';
@@ -533,16 +590,69 @@ function sendMessage() {
   };
 
   if (pendingImages.length > 0) {
-    cmd.images = pendingImages.map(img => ({
-      type: 'image',
-      data: img.data,
-      mimeType: img.mimeType,
-    }));
+    cmd.images = pendingImages.map(img => {
+      console.log(`[Tau] Sending image: mimeType=${img.mimeType}, dataLen=${img.data?.length}`);
+      return {
+        type: 'image',
+        data: img.data,
+        mimeType: img.mimeType || 'image/png',
+      };
+    });
     pendingImages = [];
     renderImagePreviews();
   }
 
+  if (state.isStreaming) {
+    // Queue it — show as bubble above input
+    messageQueue.push(cmd);
+    lastSentMessage = message;
+    renderQueuedMessages();
+    return;
+  }
+
+  lastSentMessage = message;
+  messageRenderer.renderUserMessage({ content: message, images: cmd.images });
   wsClient.send(cmd);
+}
+
+const queuedMessagesEl = document.getElementById('queued-messages');
+
+function renderQueuedMessages() {
+  queuedMessagesEl.innerHTML = '';
+  if (messageQueue.length === 0) {
+    queuedMessagesEl.classList.add('hidden');
+    return;
+  }
+  queuedMessagesEl.classList.remove('hidden');
+  messageQueue.forEach((cmd, i) => {
+    const el = document.createElement('div');
+    el.className = 'queued-msg';
+    el.innerHTML = `
+      <span class="queued-msg-label">Queued</span>
+      <span class="queued-msg-text">${escapeHtml(cmd.message)}</span>
+      <button class="queued-msg-cancel" title="Cancel">×</button>
+    `;
+    el.querySelector('.queued-msg-cancel').addEventListener('click', () => {
+      messageQueue.splice(i, 1);
+      renderQueuedMessages();
+    });
+    queuedMessagesEl.appendChild(el);
+  });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function flushQueue() {
+  if (messageQueue.length > 0 && !state.isStreaming) {
+    const cmd = messageQueue.shift();
+    messageRenderer.renderUserMessage({ content: cmd.message, images: cmd.images });
+    renderQueuedMessages();
+    wsClient.send(cmd);
+  }
 }
 
 abortBtn.addEventListener('click', () => {
@@ -566,20 +676,9 @@ const commands = [
   { icon: '📊', label: 'Session Stats', desc: 'Show session statistics', action: () => showSessionStats() },
 ];
 
-// Cycle model button
-document.getElementById('cycle-model-btn').addEventListener('click', async () => {
-  await rpcCommand({ type: 'cycle_model' }, 'Switching model...');
-  await fetchModelInfo();
-});
 
-// Cycle thinking button
-document.getElementById('cycle-thinking-btn').addEventListener('click', async () => {
-  const data = await rpcCommand({ type: 'cycle_thinking_level' }, 'Cycling thinking...');
-  if (data?.success && data.data?.level) {
-    statusText.textContent = `Thinking: ${data.data.level}`;
-    setTimeout(() => { statusText.textContent = 'Connected'; }, 2000);
-  }
-});
+
+
 
 function openCommandPalette() {
   commandList.innerHTML = '';
@@ -646,13 +745,15 @@ async function showSessionStats() {
   const data = await rpcCommand({ type: 'get_session_stats' }, 'Loading stats...');
   if (data?.success && data.data) {
     const s = data.data;
-    const msg = [
+    const lines = [
+      `📊 Session Stats`,
       `Messages: ${s.totalMessages} (${s.userMessages} user, ${s.assistantMessages} assistant)`,
       `Tool calls: ${s.toolCalls}`,
-      `Tokens: ${s.tokens.total.toLocaleString()} (in: ${s.tokens.input.toLocaleString()}, out: ${s.tokens.output.toLocaleString()}, cache: ${s.tokens.cacheRead.toLocaleString()})`,
-      `Cost: $${s.cost.toFixed(4)}`,
-    ].join('\n');
-    messageRenderer.renderSystemMessage(msg);
+    ];
+    if (s.tokens) {
+      lines.push(`Context: ~${(s.tokens.input / 1000).toFixed(1)}k tokens`);
+    }
+    messageRenderer.renderSystemMessage(lines.join('\n'));
   }
 }
 
@@ -660,12 +761,18 @@ async function showSessionStats() {
 // Model Picker
 // ═══════════════════════════════════════
 
-const modelBtn = document.getElementById('model-btn');
-const modelPicker = document.getElementById('model-picker');
-const modelPickerOverlay = document.getElementById('model-picker-overlay');
-const modelListEl = document.getElementById('model-list');
+const modelDropdown = document.getElementById('model-dropdown');
+const modelDropdownBtn = document.getElementById('model-dropdown-btn');
+const modelDropdownLabel = document.getElementById('model-dropdown-label');
+const modelDropdownMenu = document.getElementById('model-dropdown-menu');
+const thinkingBtn = document.getElementById('thinking-btn');
+function updateThinkingBtn() {
+  thinkingBtn.textContent = currentThinkingLevel;
+  thinkingBtn.classList.toggle('off', currentThinkingLevel === 'off');
+}
 let currentModelId = '';
 let availableModels = [];
+let currentThinkingLevel = 'off';
 
 async function fetchModelInfo() {
   try {
@@ -681,72 +788,118 @@ async function fetchModelInfo() {
     }
     if (stateData.success && stateData.data?.model) {
       currentModelId = stateData.data.model.id || '';
-      const shortName = currentModelId.replace(/^claude-/, '').replace(/-\d{8}$/, '');
-      modelBtn.textContent = shortName || 'model';
+      updateModelLabel();
 
-      // Update context window
       const model = availableModels.find(m => m.id === currentModelId);
       if (model?.contextWindow) {
         contextWindowSize = model.contextWindow;
         updateTokenUsage();
       }
     }
+    if (stateData.success && stateData.data?.thinkingLevel) {
+      currentThinkingLevel = stateData.data.thinkingLevel;
+      updateThinkingBtn();
+    }
   } catch (e) {
-    modelBtn.textContent = 'model';
+    // ignore
   }
 }
 
-function openModelPicker() {
-  modelListEl.innerHTML = '';
-  if (availableModels.length === 0) {
-    modelListEl.innerHTML = '<div style="padding:12px;color:var(--text-dim);font-size:12px">Loading models...</div>';
-    fetchModelInfo().then(() => {
-      if (availableModels.length > 0) renderModelList();
-    });
+function updateModelLabel() {
+  const shortName = currentModelId.replace(/^claude-/, '').replace(/-\d{8}$/, '');
+  modelDropdownLabel.textContent = shortName || 'model';
+}
+
+function toggleModelDropdown() {
+  const isOpen = !modelDropdownMenu.classList.contains('hidden');
+  if (isOpen) {
+    closeModelDropdown();
   } else {
-    renderModelList();
+    openModelDropdown();
   }
-  modelPicker.classList.remove('hidden');
-  modelPickerOverlay.classList.remove('hidden');
 }
 
-function renderModelList() {
-  modelListEl.innerHTML = '';
-  availableModels.forEach(m => {
-    const el = document.createElement('div');
-    el.className = `model-item${m.id === currentModelId ? ' active' : ''}`;
-    const shortName = m.id.replace(/-\d{8}$/, '');
-    const ctxK = m.contextWindow ? `${(m.contextWindow / 1000).toFixed(0)}k` : '';
-    const providerLabel = m.provider && m.provider !== 'anthropic' ? m.provider : '';
-    el.innerHTML = `
-      <div>
-        <span class="model-item-name">${shortName}</span>
-        ${providerLabel ? `<span class="model-item-provider">${providerLabel}</span>` : ''}
-      </div>
-      <span class="model-item-context">${ctxK}</span>
-    `;
-    el.addEventListener('click', async () => {
-      closeModelPicker();
-      await rpcCommand({ type: 'set_model', provider: m.provider, modelId: m.id }, `Switching to ${shortName}...`);
-      currentModelId = m.id;
-      const display = m.id.replace(/^claude-/, '').replace(/-\d{8}$/, '');
-      modelBtn.textContent = display;
-      if (m.contextWindow) {
-        contextWindowSize = m.contextWindow;
-        updateTokenUsage();
-      }
+function openModelDropdown() {
+  modelDropdownMenu.innerHTML = '';
+
+  // Search input
+  const search = document.createElement('input');
+  search.className = 'model-dropdown-search';
+  search.placeholder = 'Search models…';
+  search.type = 'text';
+  modelDropdownMenu.appendChild(search);
+
+  // Items container
+  const itemsContainer = document.createElement('div');
+  itemsContainer.className = 'model-dropdown-items';
+  modelDropdownMenu.appendChild(itemsContainer);
+
+  function renderItems(filter) {
+    itemsContainer.innerHTML = '';
+    const query = (filter || '').toLowerCase();
+    availableModels.forEach(m => {
+      const shortName = m.id.replace(/-\d{8}$/, '');
+      const providerStr = m.provider || '';
+      if (query && !shortName.toLowerCase().includes(query) && !providerStr.toLowerCase().includes(query)) return;
+
+      const el = document.createElement('div');
+      el.className = `model-dropdown-item${m.id === currentModelId ? ' active' : ''}`;
+      const ctxK = m.contextWindow ? `${(m.contextWindow / 1000).toFixed(0)}k` : '';
+      const providerLabel = m.provider && m.provider !== 'anthropic' ? `<span class="model-dropdown-item-provider">${m.provider}</span>` : '';
+      el.innerHTML = `<span>${shortName}${providerLabel}</span><span class="model-dropdown-item-ctx">${ctxK}</span>`;
+      el.addEventListener('click', async () => {
+        closeModelDropdown();
+        const display = m.id.replace(/^claude-/, '').replace(/-\d{8}$/, '');
+        await rpcCommand({ type: 'set_model', provider: m.provider, modelId: m.id }, `Switching to ${display}...`);
+        currentModelId = m.id;
+        updateModelLabel();
+        if (m.contextWindow) {
+          contextWindowSize = m.contextWindow;
+          updateTokenUsage();
+        }
+      });
+      itemsContainer.appendChild(el);
     });
-    modelListEl.appendChild(el);
+  }
+
+  renderItems('');
+
+  search.addEventListener('input', () => renderItems(search.value));
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { closeModelDropdown(); e.stopPropagation(); }
+    if (e.key === 'Enter') {
+      const first = itemsContainer.querySelector('.model-dropdown-item');
+      if (first) first.click();
+    }
   });
+
+  modelDropdownMenu.classList.remove('hidden');
+  modelDropdown.classList.add('open');
+  requestAnimationFrame(() => search.focus());
 }
 
-function closeModelPicker() {
-  modelPicker.classList.add('hidden');
-  modelPickerOverlay.classList.add('hidden');
+function closeModelDropdown() {
+  modelDropdownMenu.classList.add('hidden');
+  modelDropdown.classList.remove('open');
 }
 
-modelBtn.addEventListener('click', openModelPicker);
-modelPickerOverlay.addEventListener('click', closeModelPicker);
+modelDropdownBtn.addEventListener('click', toggleModelDropdown);
+
+// Close dropdown on outside click
+document.addEventListener('click', (e) => {
+  if (!modelDropdown.contains(e.target)) {
+    closeModelDropdown();
+  }
+});
+
+// Thinking level button — cycles through levels
+thinkingBtn.addEventListener('click', async () => {
+  const data = await rpcCommand({ type: 'cycle_thinking_level' }, 'Cycling thinking...');
+  if (data?.success && data.data?.level) {
+    currentThinkingLevel = data.data.level;
+    updateThinkingBtn();
+  }
+});
 
 // ═══════════════════════════════════════
 // Keyboard shortcuts
@@ -764,10 +917,11 @@ document.addEventListener('keydown', (e) => {
       closeCommandPalette();
       return;
     }
-    if (!modelPicker.classList.contains('hidden')) {
-      closeModelPicker();
+    if (!modelDropdownMenu.classList.contains('hidden')) {
+      closeModelDropdown();
       return;
     }
+
     if (state.isStreaming) {
       wsClient.send({ type: 'abort' });
       messageRenderer.renderError('Aborted by user');
@@ -793,9 +947,18 @@ function isInInput() {
 // Sidebar
 // ═══════════════════════════════════════
 
+function isMobile() {
+  return window.innerWidth <= 768;
+}
+
+function updateSidebarToggleIcon() {
+  sidebarToggle.textContent = '☰';
+}
+
 function toggleSidebar() {
   sidebarEl.classList.toggle('collapsed');
-  sidebarOverlay.classList.toggle('visible', !sidebarEl.classList.contains('collapsed') && window.innerWidth <= 768);
+  sidebarOverlay.classList.toggle('visible', !sidebarEl.classList.contains('collapsed') && isMobile());
+  updateSidebarToggleIcon();
 }
 
 sidebarToggle.addEventListener('click', toggleSidebar);
@@ -803,17 +966,61 @@ sidebarToggle.addEventListener('click', toggleSidebar);
 sidebarOverlay.addEventListener('click', () => {
   sidebarEl.classList.add('collapsed');
   sidebarOverlay.classList.remove('visible');
+  updateSidebarToggleIcon();
 });
 
-newSessionBtn.addEventListener('click', newSession);
+
 
 refreshSessionsBtn.addEventListener('click', () => {
+  if (isMobile()) {
+    location.reload();
+    return;
+  }
   refreshSessionsBtn.classList.add('spinning');
   sidebar.loadSessions().then(() => {
     setTimeout(() => refreshSessionsBtn.classList.remove('spinning'), 600);
     if (isMirrorMode) updateMirrorLiveIndicator();
   });
 });
+
+// Swipe from left edge to open sidebar on mobile
+(function initSwipeGesture() {
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let tracking = false;
+
+  document.addEventListener('touchstart', (e) => {
+    const touch = e.touches[0];
+    // Only track swipes starting within 20px of left edge
+    if (touch.clientX < 20 && isMobile() && sidebarEl.classList.contains('collapsed')) {
+      touchStartX = touch.clientX;
+      touchStartY = touch.clientY;
+      tracking = true;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (e) => {
+    if (!tracking) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - touchStartX;
+    const dy = Math.abs(touch.clientY - touchStartY);
+    // If vertical movement dominates, cancel
+    if (dy > dx) {
+      tracking = false;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', (e) => {
+    if (!tracking) return;
+    tracking = false;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartX;
+    if (dx > 60) {
+      sidebarEl.classList.remove('collapsed');
+      sidebarOverlay.classList.add('visible');
+    }
+  }, { passive: true });
+})();
 
 // Session search
 sessionSearchInput.addEventListener('input', () => {
@@ -827,7 +1034,11 @@ async function newSession() {
   updateTokenUsage();
   await switchSession(null);
   sidebar.clearActive();
-  messageInput.focus();
+  if (isMobile()) {
+    sidebarEl.classList.add('collapsed');
+    sidebarOverlay.classList.remove('visible');
+  }
+  if (!isMobile()) messageInput.focus();
 }
 
 async function handleSessionSelect(session, project) {
@@ -839,7 +1050,7 @@ async function handleSessionSelect(session, project) {
   await switchSession(session.filePath, session, project);
 
   // Close sidebar on mobile after selecting
-  if (window.innerWidth <= 768) {
+  if (isMobile()) {
     sidebarEl.classList.add('collapsed');
     sidebarOverlay.classList.remove('visible');
   }
@@ -921,12 +1132,17 @@ function handleMirrorSync(data) {
 
   // Update model display
   if (data.model) {
-    const shortName = data.model.name || data.model.id || 'unknown';
-    const modelBtn = document.getElementById('model-btn');
-    if (modelBtn) modelBtn.textContent = shortName;
+    currentModelId = data.model.id || '';
+    updateModelLabel();
     if (data.model.contextWindow) {
       contextWindowSize = data.model.contextWindow;
     }
+  }
+
+  // Update thinking level
+  if (data.thinkingLevel) {
+    currentThinkingLevel = data.thinkingLevel;
+    updateThinkingBtn();
   }
 
   // Clear and render message history
@@ -989,9 +1205,15 @@ function renderSessionHistory(entries) {
               .filter((b) => b.type === 'text')
               .map((b) => b.text)
               .join('\n');
-      if (content) {
+      // Extract images from content blocks
+      const images = Array.isArray(msg.content)
+        ? msg.content
+            .filter((b) => b.type === 'image')
+            .map((b) => ({ data: b.source?.data || b.data || '', mimeType: b.source?.media_type || b.media_type || 'image/png' }))
+        : [];
+      if (content || images.length > 0) {
         userCount++;
-        messageRenderer.renderUserMessage({ content }, true);
+        messageRenderer.renderUserMessage({ content: content || '', images: images.length > 0 ? images : undefined }, true);
       }
     } else if (msg.role === 'assistant') {
       const textBlocks = (msg.content || []).filter((b) => b.type === 'text');
@@ -1025,6 +1247,7 @@ function renderSessionHistory(entries) {
         }
         if (msg.usage?.input) {
           lastInputTokens = msg.usage.input + (msg.usage.cacheRead || 0);
+          lastUsage = msg.usage;
         }
       }
 
@@ -1056,10 +1279,15 @@ function renderSessionHistory(entries) {
   updateTokenUsage();
   fetchContextWindow();
 
-  // Force scroll to bottom after rendering all history
+  // Jump to bottom instantly (no smooth scroll animation)
   const messagesEl = document.getElementById('messages');
+  messagesEl.style.scrollBehavior = 'auto';
   requestAnimationFrame(() => {
     messagesEl.scrollTop = messagesEl.scrollHeight;
+    // Restore smooth scrolling after a frame
+    requestAnimationFrame(() => {
+      messagesEl.style.scrollBehavior = '';
+    });
   });
 }
 
@@ -1130,11 +1358,24 @@ async function fetchContextWindow() {
   await fetchModelInfo();
 }
 
+let tailscaleUrl = '';
+
 function updateConnectionStatus(status) {
   statusIndicator.className = `status-indicator ${status}`;
 
   if (status === 'connected') {
-    statusText.textContent = 'Connected';
+    statusText.textContent = tailscaleUrl ? 'Connected • TS' : 'Connected';
+    statusText.title = tailscaleUrl || '';
+    // Fetch tailscale info on first connect
+    if (!tailscaleUrl) {
+      fetch('/api/health').then(r => r.json()).then(data => {
+        if (data.tailscaleUrl) {
+          tailscaleUrl = data.tailscaleUrl;
+          statusText.textContent = 'Connected • TS';
+          statusText.title = tailscaleUrl;
+        }
+      }).catch(() => {});
+    }
   } else if (status === 'disconnected') {
     statusText.textContent = 'Disconnected';
   }
@@ -1153,8 +1394,8 @@ function updateUI() {
     statusText.textContent = 'Connected';
   }
 
-  messageInput.disabled = isStreaming;
-  sendBtn.disabled = isStreaming;
+  messageInput.disabled = false;
+  sendBtn.disabled = false;
 
   if (isStreaming) {
     abortBtn.classList.remove('hidden');
@@ -1162,6 +1403,7 @@ function updateUI() {
   } else {
     abortBtn.classList.add('hidden');
     sendBtn.classList.remove('hidden');
+    flushQueue();
   }
 }
 
@@ -1198,7 +1440,10 @@ function buildThemeGrid() {
   for (const [id, theme] of Object.entries(themes)) {
     const btn = document.createElement('button');
     btn.className = `theme-swatch${current === id ? ' active' : ''}`;
-    btn.innerHTML = `<span>${theme.name}</span>`;
+    const dots = (theme.colors || []).map(c => 
+      `<span class="swatch-dot" style="background:${c}"></span>`
+    ).join('');
+    btn.innerHTML = `<span class="swatch-colors">${dots}</span>`;
     btn.addEventListener('click', () => {
       applyTheme(id);
       themeGrid.querySelectorAll('.theme-swatch').forEach(s => s.classList.remove('active'));
@@ -1227,6 +1472,8 @@ async function openSettings() {
       toggleAutoCompact.className = `settings-toggle${s.autoCompactionEnabled ? ' on' : ''}`;
       // Thinking level
       btnThinkingLevel.textContent = s.thinkingLevel || 'off';
+      currentThinkingLevel = s.thinkingLevel || 'off';
+      updateThinkingBtn();
       // Session name
       inputSessionName.value = s.sessionName || '';
     }
@@ -1251,11 +1498,13 @@ toggleAutoCompact.addEventListener('click', async () => {
   await rpcCommand({ type: 'set_auto_compaction', enabled: !isOn });
 });
 
-// Thinking level cycle
+// Thinking level cycle (settings panel button)
 btnThinkingLevel.addEventListener('click', async () => {
   const data = await rpcCommand({ type: 'cycle_thinking_level' });
   if (data?.success && data.data?.level) {
     btnThinkingLevel.textContent = data.data.level;
+    currentThinkingLevel = data.data.level;
+    updateThinkingBtn();
   }
 });
 
@@ -1280,12 +1529,200 @@ const savedTheme = getCurrentTheme();
 applyTheme(savedTheme);
 
 // ═══════════════════════════════════════
+// Context Window Visualiser
+// ═══════════════════════════════════════
+
+const contextViz = document.getElementById('context-viz');
+const contextBar = document.getElementById('context-bar');
+const contextLegend = document.getElementById('context-legend');
+const contextVizUsed = document.getElementById('context-viz-used');
+const contextVizTotal = document.getElementById('context-viz-total');
+
+
+function formatTokens(n) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+function updateContextViz() {
+  if (!lastUsage || !contextWindowSize) return;
+
+  const input = lastUsage.input || 0;
+  const cacheRead = lastUsage.cacheRead || 0;
+  const cacheWrite = lastUsage.cacheWrite || 0;
+  const output = lastUsage.output || 0;
+  const total = contextWindowSize;
+
+  // Input tokens include cache — break it down
+  // "input" from API = fresh (uncached) input tokens
+  // "cacheRead" = tokens served from cache (system prompt, earlier messages)
+  const freshInput = input;
+  const totalUsed = freshInput + cacheRead;
+  const free = Math.max(0, total - totalUsed);
+
+  const segments = [
+    { key: 'cache', label: 'Cached', tokens: cacheRead, color: 'cache' },
+    { key: 'messages', label: 'Input', tokens: freshInput, color: 'messages' },
+    { key: 'free', label: 'Available', tokens: free, color: 'free' },
+  ];
+
+  // Build bar
+  contextBar.innerHTML = '';
+  for (const seg of segments) {
+    if (seg.tokens <= 0) continue;
+    const pct = (seg.tokens / total) * 100;
+    const el = document.createElement('div');
+    el.className = `context-bar-segment ${seg.color}`;
+    el.style.width = `${pct}%`;
+    el.title = `${seg.label}: ${formatTokens(seg.tokens)}`;
+    contextBar.appendChild(el);
+  }
+
+  // Build legend
+  contextLegend.innerHTML = '';
+  for (const seg of segments) {
+    const item = document.createElement('div');
+    item.className = 'context-legend-item';
+    item.innerHTML = `
+      <span class="context-legend-left">
+        <span class="context-legend-dot ${seg.color}"></span>
+        ${seg.label}
+      </span>
+      <span class="context-legend-value">${formatTokens(seg.tokens)}</span>
+    `;
+    contextLegend.appendChild(item);
+  }
+
+  // Footer
+  const pct = Math.round((totalUsed / total) * 100);
+  contextVizUsed.textContent = `${pct}% used`;
+  contextVizTotal.textContent = `${formatTokens(totalUsed)} / ${formatTokens(total)}`;
+}
+
+// Toggle on click
+tokenUsageEl.addEventListener('click', (e) => {
+  e.stopPropagation();
+  const isHidden = contextViz.classList.contains('hidden');
+  if (isHidden) {
+    updateContextViz();
+    contextViz.classList.remove('hidden');
+  } else {
+    contextViz.classList.add('hidden');
+  }
+});
+
+// Close on click outside
+document.addEventListener('click', (e) => {
+  if (!contextViz.contains(e.target) && e.target !== tokenUsageEl) {
+    contextViz.classList.add('hidden');
+  }
+});
+
+// ═══════════════════════════════════════
+// Voice Input
+// ═══════════════════════════════════════
+
+const micBtn = document.getElementById('mic-btn');
+let recognition = null;
+let isRecording = false;
+
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = 'en-AU';
+
+  let finalTranscript = '';
+  let interimTranscript = '';
+
+  recognition.addEventListener('result', (e) => {
+    interimTranscript = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) {
+        finalTranscript += e.results[i][0].transcript;
+      } else {
+        interimTranscript += e.results[i][0].transcript;
+      }
+    }
+    // Show live transcription in the input
+    messageInput.value = finalTranscript + interimTranscript;
+    messageInput.dispatchEvent(new Event('input'));
+  });
+
+  recognition.addEventListener('end', () => {
+    if (isRecording) {
+      // Stopped unexpectedly — clean up
+      stopRecording();
+    }
+  });
+
+  recognition.addEventListener('error', (e) => {
+    console.error('[Voice] Error:', e.error);
+    stopRecording();
+  });
+
+  micBtn.addEventListener('click', () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  });
+
+  function startRecording() {
+    finalTranscript = messageInput.value; // Append to existing text
+    interimTranscript = '';
+    isRecording = true;
+    micBtn.classList.add('recording');
+    micBtn.title = 'Stop recording';
+    recognition.start();
+    messageInput.focus();
+  }
+
+  function stopRecording() {
+    isRecording = false;
+    micBtn.classList.remove('recording');
+    micBtn.title = 'Voice input';
+    try { recognition.stop(); } catch {}
+    // Commit final transcript
+    messageInput.value = finalTranscript;
+    messageInput.dispatchEvent(new Event('input'));
+    messageInput.focus();
+  }
+} else {
+  // No speech recognition support — hide mic button
+  micBtn.style.display = 'none';
+}
+
+
+
+// ═══════════════════════════════════════
 // Initialize
 // ═══════════════════════════════════════
 
-// Collapse sidebar by default on mobile
-if (window.innerWidth <= 768) {
+// On mobile, move cost + token usage above input
+if (isMobile()) {
   sidebarEl.classList.add('collapsed');
+
+  const mobileBar = document.getElementById('mobile-model-bar');
+  const sessionCost = document.getElementById('session-cost');
+  const tokenUsage = document.getElementById('token-usage');
+  if (mobileBar && sessionCost && tokenUsage) {
+    mobileBar.appendChild(sessionCost);
+    mobileBar.appendChild(tokenUsage);
+  }
+
+  // Start collapsed
+  mobileBar.classList.add('collapsed');
+
+  // Toggle via chevron
+  const contextToggle = document.getElementById('mobile-context-toggle');
+  contextToggle.addEventListener('click', () => {
+    mobileBar.classList.toggle('collapsed');
+    contextToggle.classList.toggle('flipped', !mobileBar.classList.contains('collapsed'));
+  });
 }
 
 wsClient.connect();
@@ -1293,5 +1730,19 @@ messageRenderer.renderWelcome();
 sidebar.loadSessions().then(() => {
   if (isMirrorMode) updateMirrorLiveIndicator();
 });
+
+// Register service worker for PWA
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+
+// Dismiss mobile splash screen
+const splash = document.getElementById('mobile-splash');
+if (splash) {
+  requestAnimationFrame(() => {
+    splash.classList.add('hidden');
+    setTimeout(() => splash.remove(), 300);
+  });
+}
 
 console.log('🚀 Tau initialized');

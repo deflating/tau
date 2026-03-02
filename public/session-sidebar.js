@@ -55,16 +55,118 @@ export class SessionSidebar {
 
   setSearchQuery(query) {
     this.searchQuery = query.toLowerCase().trim();
+
+    // Clear pending full-text search
+    if (this._searchTimer) clearTimeout(this._searchTimer);
+
+    if (!this.searchQuery) {
+      this._searchResults = null;
+      this.applySearch();
+      return;
+    }
+
+    // Instant: filter titles
     this.applySearch();
+
+    // Debounced: full-text search (300ms)
+    if (this.searchQuery.length >= 2) {
+      this._searchTimer = setTimeout(() => this.fullTextSearch(this.searchQuery), 300);
+    }
+  }
+
+  async fullTextSearch(query) {
+    // Don't search if query changed since debounce
+    if (query !== this.searchQuery) return;
+
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      if (query !== this.searchQuery) return; // stale
+
+      this._searchResults = data.results || [];
+      this.renderSearchResults();
+    } catch (err) {
+      console.error('[Sidebar] Search failed:', err);
+    }
+  }
+
+  renderSearchResults() {
+    if (!this._searchResults || this._searchResults.length === 0) return;
+
+    // Remove previous search results section
+    const existing = this.container.querySelector('.search-results-group');
+    if (existing) existing.remove();
+
+    const group = document.createElement('div');
+    group.className = 'search-results-group';
+
+    const header = document.createElement('div');
+    header.className = 'project-header search-results-header';
+    header.innerHTML = `<span>🔍</span> <span>Message matches</span> <span class="project-count">${this._searchResults.length}</span>`;
+    group.appendChild(header);
+
+    const sessionsDiv = document.createElement('div');
+    sessionsDiv.className = 'project-sessions';
+
+    for (const result of this._searchResults) {
+      const item = document.createElement('div');
+      item.className = 'session-item search-result-item';
+      item.dataset.filePath = result.filePath;
+
+      if (result.filePath === this.activeSessionFile) {
+        item.classList.add('active');
+      }
+
+      const title = result.sessionName || result.firstMessage || 'Untitled';
+      const snippet = result.matches[0]?.snippet || '';
+      const matchCount = result.matches.length;
+      const time = this.formatTime(result.sessionTimestamp);
+
+      item.innerHTML = `
+        <div class="session-title-row">
+          <div class="session-title" title="${this.escapeHtml(title)}">${this.escapeHtml(title)}</div>
+        </div>
+        <div class="search-snippet">${this.highlightMatch(snippet, this.searchQuery)}</div>
+        <div class="session-meta">${time}${matchCount > 1 ? ` · ${matchCount} matches` : ''}</div>
+      `;
+
+      // Find the matching project/session to pass to onSessionSelect
+      item.addEventListener('click', () => {
+        for (const project of this.projects) {
+          const session = project.sessions.find(s => s.filePath === result.filePath);
+          if (session) {
+            this.onSessionSelect(session, project);
+            return;
+          }
+        }
+        // Session not in loaded list (unlikely) — try switching by path
+        this.onSessionSelect({ filePath: result.filePath, name: result.sessionName }, { path: result.project });
+      });
+
+      sessionsDiv.appendChild(item);
+    }
+
+    group.appendChild(sessionsDiv);
+    // Insert at top of container
+    this.container.insertBefore(group, this.container.firstChild);
+  }
+
+  highlightMatch(text, query) {
+    if (!query) return this.escapeHtml(text);
+    const escaped = this.escapeHtml(text);
+    const re = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return escaped.replace(re, '<mark>$1</mark>');
   }
 
   applySearch() {
     if (!this.searchQuery) {
       this.container.querySelectorAll('.session-item').forEach(el => el.classList.remove('hidden'));
       this.container.querySelectorAll('.project-group').forEach(el => el.style.display = '');
-      // Show/hide favourites section too
       const favSection = this.container.querySelector('.favourites-group');
       if (favSection) favSection.style.display = '';
+      // Remove full-text results
+      const searchGroup = this.container.querySelector('.search-results-group');
+      if (searchGroup) searchGroup.remove();
       return;
     }
 

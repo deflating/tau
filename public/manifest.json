@@ -1,0 +1,28 @@
+{
+  "name": "Tau",
+  "short_name": "Tau",
+  "description": "Web UI for pi coding agent",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f3ef",
+  "theme_color": "#f5f3ef",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icons/tau-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/tau-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/tau-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

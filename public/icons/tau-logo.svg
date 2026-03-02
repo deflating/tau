@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#f0efe9"/>
+  <!-- Grid: 8x8, each cell 40px, centered in 512 (offset: 96,96) -->
+  <!-- Top bar: 3 cells wide at row 2, cols 2-4 -->
+  <rect x="176" y="156" width="56" height="56" fill="#2d2d2d"/>
+  <rect x="232" y="156" width="56" height="56" fill="#2d2d2d"/>
+  <rect x="288" y="156" width="56" height="56" fill="#2d2d2d"/>
+  <!-- Stem: 1 cell wide at col 3, rows 3-4 -->
+  <rect x="232" y="212" width="56" height="56" fill="#2d2d2d"/>
+  <rect x="232" y="268" width="56" height="56" fill="#2d2d2d"/>
+  <!-- Curl: offset block at col 4, row 5 -->
+  <rect x="288" y="324" width="56" height="56" fill="#2d2d2d"/>
+</svg>

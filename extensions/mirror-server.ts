@@ -19,7 +19,7 @@ import QRCode from "qrcode";
 
 const PORT = parseInt(process.env.TAU_MIRROR_PORT || "3001");
 // @ts-ignore — __dirname is provided by jiti at runtime
-const STATIC_DIR = process.env.TAU_STATIC_DIR || path.resolve(__dirname, "../public");
+const STATIC_DIR = process.env.TAU_STATIC_DIR || path.resolve(process.cwd(), "public");
 const SESSIONS_DIR = path.join(process.env.HOME || "~", ".pi/agent/sessions");
 
 // MIME types for static file serving
@@ -69,6 +69,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   let mirrorUrl = "";
+  let tailscaleUrl = "";
 
   // ═══════════════════════════════════════
   // /qr command — show QR code to connect
@@ -220,13 +221,19 @@ export default function (pi: ExtensionAPI) {
                 }
                 // Strip data URL prefix if accidentally included
                 const data = img.data.includes(",") ? img.data.split(",")[1] : img.data;
-                const mimeType = validMimes.includes(img.mimeType) ? img.mimeType : "image/png";
-                console.log(`[mirror-server] Image: mimeType=${mimeType}, dataLen=${data.length}`);
-                content.push({
+                const mimeType = (validMimes.includes(img.mimeType) ? img.mimeType : "image/png") as "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+                console.log(`[mirror-server] Image: mimeType=${mimeType}, dataLen=${data.length}, rawMimeType=${img.mimeType}`);
+                const imageBlock = {
                   type: "image" as const,
-                  data,
-                  mimeType,
-                });
+                  data: data,
+                  mimeType: mimeType,
+                };
+                // Defensive: verify mimeType is actually set (debug crash where it was missing)
+                if (!imageBlock.mimeType) {
+                  console.error(`[mirror-server] BUG: mimeType is falsy after assignment! img.mimeType=${img.mimeType}, falling back to image/png`);
+                  imageBlock.mimeType = "image/png";
+                }
+                content.push(imageBlock);
               }
               // Only send content array if we actually have images, otherwise just text
               const hasImages = content.some((c: any) => c.type === "image");
@@ -412,8 +419,14 @@ export default function (pi: ExtensionAPI) {
 
         case "compact": {
           if (ctx) {
+            // Broadcast compaction start to all clients
+            broadcast({ type: "auto_compaction_start" });
             ctx.compact({
               customInstructions: command.customInstructions,
+            }).then((result: any) => {
+              broadcast({ type: "auto_compaction_end", summary: result?.summary });
+            }).catch((err: any) => {
+              broadcast({ type: "auto_compaction_end", summary: `Error: ${err.message}` });
             });
           }
           sendTo(ws, success("compact"));
@@ -426,13 +439,16 @@ export default function (pi: ExtensionAPI) {
             break;
           }
           try {
-            const outputPath = command.outputPath || path.join(
-              process.env.HOME || "/tmp",
-              "Downloads",
-              `pi-session-${new Date().toISOString().replace(/[:.]/g, "-")}.html`
-            );
-            await ctx.exportHTML(outputPath);
-            sendTo(ws, success("export_html", { path: outputPath }));
+            const sessionFile = ctx.sessionManager.getSessionFile();
+            if (!sessionFile) throw new Error("No session file to export");
+            const { execSync } = require("node:child_process");
+            const args = command.outputPath
+              ? `"${sessionFile}" "${command.outputPath}"`
+              : `"${sessionFile}"`;
+            const output = execSync(`pi --export ${args}`, { cwd: process.cwd(), timeout: 30000, encoding: "utf-8" });
+            // pi prints the output path
+            const result = output.trim().split("\n").pop() || sessionFile.replace(".jsonl", ".html");
+            sendTo(ws, success("export_html", { path: result }));
           } catch (e: any) {
             sendTo(ws, error("export_html", e.message));
           }
@@ -523,13 +539,18 @@ export default function (pi: ExtensionAPI) {
         res.end(JSON.stringify({ error: "Server not ready" }));
         return;
       }
-      QRCode.toDataURL(mirrorUrl, { width: 256, margin: 2 }).then((dataUrl: string) => {
+      const qrPromises = [QRCode.toDataURL(mirrorUrl, { width: 256, margin: 2 })];
+      if (tailscaleUrl) qrPromises.push(QRCode.toDataURL(tailscaleUrl, { width: 256, margin: 2 }));
+      Promise.all(qrPromises).then((dataUrls: string[]) => {
+        const tsSection = tailscaleUrl && dataUrls[1]
+          ? `<p style="margin-top:24px;color:rgba(255,255,255,0.3);font-size:11px">TAILSCALE</p><img src="${dataUrls[1]}" width="256" height="256" alt="Tailscale QR"><a href="${tailscaleUrl}">${tailscaleUrl}</a>`
+          : "";
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(`<!DOCTYPE html>
 <html><head><meta name="viewport" content="width=device-width"><title>Tau — Connect</title>
 <style>body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#131316;color:#fff;font-family:-apple-system,sans-serif}
 img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rgba(255,255,255,0.5);font-size:13px;margin-top:8px}</style>
-</head><body><img src="${dataUrl}" width="256" height="256" alt="QR Code"><a href="${mirrorUrl}">${mirrorUrl}</a><p>Scan to open Tau on your phone</p></body></html>`);
+</head><body><p style="color:rgba(255,255,255,0.3);font-size:11px">LAN</p><img src="${dataUrls[0]}" width="256" height="256" alt="QR Code"><a href="${mirrorUrl}">${mirrorUrl}</a>${tsSection}<p style="margin-top:16px">Scan to open Tau on your phone</p></body></html>`);
       }).catch((e: any) => {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: e.message }));
@@ -539,12 +560,68 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
 
     if (urlPath === "/api/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", mode: "mirror" }));
+      res.end(JSON.stringify({ status: "ok", mode: "mirror", mirrorUrl, tailscaleUrl: tailscaleUrl || undefined }));
       return;
     }
 
     if (urlPath === "/api/sessions" && req.method === "GET") {
       serveSessionsList(res);
+      return;
+    }
+
+    // Full-text search across sessions
+    if (urlPath.startsWith("/api/search") && req.method === "GET") {
+      const searchUrl = new URL(`http://localhost${req.url}`);
+      const q = searchUrl.searchParams.get("q") || "";
+      serveSearch(res, q);
+      return;
+    }
+
+    // File browser: list directory
+    if (urlPath === "/api/files" || urlPath.startsWith("/api/files?")) {
+      if (req.method !== "GET") { res.writeHead(405); res.end(); return; }
+      try {
+        const filesUrl = new URL(`http://localhost${req.url}`);
+        const explicitPath = filesUrl.searchParams.get("path");
+        let dirPath = explicitPath || process.cwd();
+        if (!explicitPath && latestCtx) {
+          try {
+            const entries = latestCtx.sessionManager.getEntries();
+            const sessionEntry = entries.find((e: any) => e.type === "session");
+            if (sessionEntry?.cwd) dirPath = sessionEntry.cwd;
+          } catch {}
+        }
+        serveFileList(res, dirPath);
+      } catch (err: any) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+      return;
+    }
+
+    // File browser: open file natively
+    if (urlPath === "/api/open" && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+      req.on("end", async () => {
+        try {
+          const { filePath: fp } = JSON.parse(body);
+          if (!fp || typeof fp !== "string") {
+            res.writeHead(400, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "filePath required" }));
+            return;
+          }
+          const { execFile } = await import("node:child_process");
+          execFile("open", [fp], (err) => {
+            if (err) console.error("[Mirror] open failed:", err.message);
+          });
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ ok: true }));
+        } catch (err: any) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
       return;
     }
 
@@ -772,6 +849,175 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
   }
 
   // ═══════════════════════════════════════
+  // File browser
+  // ═══════════════════════════════════════
+
+  const IGNORED_NAMES = new Set([
+    "node_modules", ".git", "__pycache__", ".DS_Store", ".Trash",
+    ".next", ".nuxt", "dist", "build", ".cache", ".turbo",
+    "venv", ".venv", "env", ".env.local",
+    ".pi", "coverage", ".nyc_output", ".parcel-cache",
+  ]);
+
+  function serveFileList(res: http.ServerResponse, dirPath: string) {
+    try {
+      if (!fs.existsSync(dirPath) || !fs.statSync(dirPath).isDirectory()) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Not a directory" }));
+        return;
+      }
+
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      const items: any[] = [];
+
+      for (const entry of entries) {
+        if (entry.name.startsWith(".") && entry.name !== ".env") continue;
+        if (IGNORED_NAMES.has(entry.name)) continue;
+
+        try {
+          const fullPath = path.join(dirPath, entry.name);
+          const stat = fs.statSync(fullPath);
+
+          items.push({
+            name: entry.name,
+            path: fullPath,
+            isDirectory: entry.isDirectory(),
+            size: entry.isDirectory() ? null : stat.size,
+            mtime: stat.mtimeMs,
+          });
+        } catch { /* skip inaccessible */ }
+      }
+
+      // Directories first, then files, both alphabetical
+      items.sort((a, b) => {
+        if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ path: dirPath, items }));
+    } catch (err: any) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
+  // ═══════════════════════════════════════
+  // Full-text search
+  // ═══════════════════════════════════════
+
+  async function serveSearch(res: http.ServerResponse, query: string) {
+    try {
+      if (!query || query.length < 2) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ results: [] }));
+        return;
+      }
+
+      const q = query.toLowerCase();
+      const readline = await import("node:readline");
+      const results: any[] = [];
+      const MAX_RESULTS = 30;
+
+      if (!fs.existsSync(SESSIONS_DIR)) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ results: [] }));
+        return;
+      }
+
+      const dirEntries = fs.readdirSync(SESSIONS_DIR, { withFileTypes: true });
+
+      for (const dir of dirEntries) {
+        if (!dir.isDirectory()) continue;
+        if (results.length >= MAX_RESULTS) break;
+
+        const projectDir = path.join(SESSIONS_DIR, dir.name);
+        const decodedPath = dir.name.replace(/^--/, "/").replace(/--$/, "").replace(/-/g, "/");
+        const files = fs.readdirSync(projectDir).filter(f => f.endsWith(".jsonl"));
+
+        for (const file of files) {
+          if (results.length >= MAX_RESULTS) break;
+
+          try {
+            const filePath = path.join(projectDir, file);
+            const stream = fs.createReadStream(filePath, { encoding: "utf8" });
+            const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+            let sessionId = "";
+            let sessionName = "";
+            let sessionTimestamp = "";
+            let firstMessage = "";
+            const matches: any[] = [];
+
+            for await (const line of rl) {
+              if (!line.trim()) continue;
+              try {
+                const entry = JSON.parse(line);
+
+                if (entry.type === "session") {
+                  sessionId = entry.id;
+                  sessionTimestamp = entry.timestamp || "";
+                }
+                if (entry.type === "session_info" && entry.name) {
+                  sessionName = entry.name;
+                }
+                if (entry.type === "message") {
+                  const content = entry.message?.content;
+                  let text = "";
+                  if (typeof content === "string") text = content;
+                  else if (Array.isArray(content)) {
+                    text = content.filter((b: any) => b.type === "text").map((b: any) => b.text).join(" ");
+                  }
+
+                  if (!firstMessage && entry.message?.role === "user" && text) {
+                    firstMessage = text.substring(0, 120);
+                  }
+
+                  if (text && text.toLowerCase().includes(q)) {
+                    // Extract a snippet around the match
+                    const idx = text.toLowerCase().indexOf(q);
+                    const start = Math.max(0, idx - 60);
+                    const end = Math.min(text.length, idx + q.length + 60);
+                    const snippet = (start > 0 ? "…" : "") + text.substring(start, end) + (end < text.length ? "…" : "");
+
+                    matches.push({
+                      role: entry.message?.role || "unknown",
+                      snippet: snippet.replace(/\n/g, " "),
+                    });
+
+                    if (matches.length >= 3) break; // max 3 matches per session
+                  }
+                }
+              } catch { /* skip line */ }
+            }
+
+            rl.close();
+            stream.destroy();
+
+            if (matches.length > 0) {
+              results.push({
+                filePath,
+                project: decodedPath,
+                sessionId,
+                sessionName,
+                sessionTimestamp,
+                firstMessage,
+                matches,
+              });
+            }
+          } catch { /* skip file */ }
+        }
+      }
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ results }));
+    } catch (err: any) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+
+  // ═══════════════════════════════════════
   // Start the server
   // ═══════════════════════════════════════
   pi.on("session_start", async (_event, ctx) => {
@@ -842,27 +1088,53 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
     };
 
     const onListening = (port: number) => {
-      // Get local IP for display — prefer LAN (192.168/10.x) over VPN (100.x)
+      // Get local IP for display — prefer en0/en1 (WiFi/Ethernet) over bridges/VPNs
       const nets = require("node:os").networkInterfaces();
       let localIp = "localhost";
       let fallbackIp = "";
-      for (const name of Object.keys(nets)) {
+      const preferred = ["en0", "en1"]; // WiFi and Ethernet adapters
+      for (const name of preferred) {
         for (const net of nets[name] || []) {
           if (net.family === "IPv4" && !net.internal) {
-            if (net.address.startsWith("192.168.") || net.address.startsWith("10.")) {
+            localIp = net.address;
+            break;
+          }
+        }
+        if (localIp !== "localhost") break;
+      }
+      // Fallback: any LAN IP that isn't a bridge or VPN
+      if (localIp === "localhost") {
+        for (const name of Object.keys(nets)) {
+          if (name.startsWith("bridge") || name.startsWith("utun") || name.startsWith("lo")) continue;
+          for (const net of nets[name] || []) {
+            if (net.family === "IPv4" && !net.internal && (net.address.startsWith("192.168.") || net.address.startsWith("10."))) {
               localIp = net.address;
-            } else if (!fallbackIp) {
-              fallbackIp = net.address;
+              break;
             }
           }
+          if (localIp !== "localhost") break;
         }
       }
       if (localIp === "localhost" && fallbackIp) localIp = fallbackIp;
-      mirrorUrl = `http://${localIp}:${PORT}`;
-      console.log(`[Mirror] Tau mirror server running on ${mirrorUrl}`);
-      ctx.ui.setStatus("mirror", `Mirror: ${localIp}:${PORT}`);
 
-      ctx.ui.notify(`Tau mirror: ${mirrorUrl}  •  /qr for QR code`, "info");
+      // Detect Tailscale IP (100.x.x.x CGNAT range)
+      let tailscaleIp = "";
+      for (const name of Object.keys(nets)) {
+        for (const net of nets[name] || []) {
+          if (net.family === "IPv4" && !net.internal && net.address.startsWith("100.")) {
+            tailscaleIp = net.address;
+            break;
+          }
+        }
+        if (tailscaleIp) break;
+      }
+
+      mirrorUrl = `http://${localIp}:${PORT}`;
+      tailscaleUrl = tailscaleIp ? `http://${tailscaleIp}:${PORT}` : "";
+      console.log(`[Mirror] Tau mirror server running on ${mirrorUrl}${tailscaleUrl ? `  •  Tailscale: ${tailscaleUrl}` : ""}`);
+      ctx.ui.setStatus("mirror", `Mirror: ${localIp}:${PORT}${tailscaleIp ? ` • TS: ${tailscaleIp}:${PORT}` : ""}`);
+
+      ctx.ui.notify(`Tau mirror: ${mirrorUrl}${tailscaleUrl ? `  •  Tailscale: ${tailscaleUrl}` : ""}  •  /qr for QR code`, "info");
     };
 
     tryListen(PORT);
