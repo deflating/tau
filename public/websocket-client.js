@@ -62,6 +62,7 @@ export class WebSocketClient extends EventTarget {
   // Force reconnect — resets attempt counter and connects fresh
   forceReconnect() {
     this.reconnectAttempts = 0;
+    this.isIntentionallyClosed = true; // suppress 'disconnected' event from stale close
     this.connect();
   }
 
