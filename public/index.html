@@ -23,7 +23,7 @@
         </div>
         <input type="text" id="session-search-input" class="sidebar-search-input" placeholder="Search..." autocomplete="off" />
         <div class="sidebar-actions">
-          <button class="icon-btn" id="refresh-sessions-btn" title="Refresh sessions">↻</button>
+          <button class="icon-btn" id="refresh-sessions-btn" title="Refresh sessions" aria-label="Refresh sessions">↻</button>
         </div>
       </div>
       <div class="session-list" id="session-list">
@@ -39,7 +39,7 @@
       <!-- Header -->
       <div class="header">
         <div class="header-left">
-          <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">☰</button>
+          <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar">☰</button>
           <div class="model-dropdown" id="model-dropdown">
             <button class="model-dropdown-btn" id="model-dropdown-btn" title="Switch model">
               <span class="model-dropdown-label" id="model-dropdown-label">model</span>
@@ -50,9 +50,9 @@
           <button class="thinking-tag" id="thinking-btn" title="Cycle thinking level">off</button>
         </div>
         <div class="header-right">
-          <div class="session-cost" id="session-cost" title="Session cost"></div>
+          <div class="pill session-cost" id="session-cost" title="Session cost"></div>
           <div style="position: relative;">
-            <div class="token-usage" id="token-usage" title="Click for context breakdown"></div>
+            <div class="pill token-usage" id="token-usage" title="Click for context breakdown"></div>
             <div class="context-viz hidden" id="context-viz">
               <div class="context-viz-title">Context Window</div>
               <div class="context-bar" id="context-bar"></div>
@@ -67,10 +67,10 @@
             <span class="status-indicator" id="status-indicator"></span>
             <span class="status-text" id="status-text">Connecting...</span>
           </div>
-          <button class="icon-btn" id="file-sidebar-toggle" title="Files">
+          <button class="icon-btn" id="file-sidebar-toggle" title="Files" aria-label="Toggle file browser">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
           </button>
-          <button class="settings-btn" id="settings-btn" title="Settings">
+          <button class="settings-btn" id="settings-btn" title="Settings" aria-label="Settings">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
         </div>
@@ -108,10 +108,10 @@
         <div class="image-previews hidden" id="image-previews"></div>
         <form id="chat-form">
           <div class="input-left-actions">
-            <button type="button" class="input-icon-btn" id="command-btn" title="Commands" tabindex="-1">
+            <button type="button" class="input-icon-btn" id="command-btn" title="Commands" aria-label="Open commands" tabindex="-1">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg>
             </button>
-            <button type="button" class="input-icon-btn" id="attach-btn" title="Attach image" tabindex="-1">
+            <button type="button" class="input-icon-btn" id="attach-btn" title="Attach image" aria-label="Attach image" tabindex="-1">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
             </button>
 
@@ -149,7 +149,7 @@
         <button class="icon-btn" id="file-sidebar-finder" title="Open in file manager">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>
         </button>
-        <button class="icon-btn" id="file-sidebar-close" title="Close">✕</button>
+        <button class="icon-btn" id="file-sidebar-close" title="Close" aria-label="Close file browser">✕</button>
       </div>
       <div class="file-sidebar-path" id="file-sidebar-path" title=""></div>
       <div class="file-list" id="file-list"></div>

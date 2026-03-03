@@ -24,7 +24,7 @@ export class ToolCardRenderer {
     card.innerHTML = `
       <div class="tool-card-header" onclick="this.parentElement.querySelector('.tool-card-body').classList.toggle('expanded'); this.querySelector('.tool-card-chevron').classList.toggle('expanded')">
         <div class="tool-header-left">
-          <span class="tool-card-chevron${isExpanded ? ' expanded' : ''}">▶</span>
+          <span class="tool-card-chevron${isExpanded ? ' expanded' : ''}"><svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M2 1l4 3-4 3z"/></svg></span>
           <span class="tool-name">${this.escapeHtml(toolName)}</span>
           ${argsPreview ? `<span class="tool-args-preview">${this.escapeHtml(argsPreview)}</span>` : ''}
         </div>
@@ -133,7 +133,7 @@ export class ToolCardRenderer {
 
     const chevron = document.createElement('span');
     chevron.className = 'tool-card-chevron';
-    chevron.textContent = '▶';
+    chevron.innerHTML = '<svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M2 1l4 3-4 3z"/></svg>';
     headerLeft.appendChild(chevron);
 
     const name = document.createElement('span');

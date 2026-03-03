@@ -42,7 +42,9 @@ export class SessionSidebar {
 
   async loadSessions() {
     try {
-      this.container.innerHTML = '<div class="session-loading">Loading sessions...</div>';
+      this.container.innerHTML = Array.from({length: 6}, () =>
+        '<div class="session-skeleton"><div class="session-skeleton-title"></div><div class="session-skeleton-meta"></div></div>'
+      ).join('');
       const res = await fetch('/api/sessions');
       const data = await res.json();
       this.projects = data.projects || [];

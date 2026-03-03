@@ -89,9 +89,6 @@ select:focus-visible {
   --shadow-lg: none;
   --shadow-inset: none;
 
-  --orb-1: none;
-  --orb-2: none;
-  --orb-3: none;
 }
 
 /* ─── Midnight — OLED black ─── */
@@ -138,9 +135,6 @@ select:focus-visible {
   --shadow-lg: none;
   --shadow-inset: none;
 
-  --orb-1: none;
-  --orb-2: none;
-  --orb-3: none;
 }
 
 /* ─── Dawn — warm blue dark ─── */
@@ -189,9 +183,6 @@ select:focus-visible {
 
   --success: #34d399;
 
-  --orb-1: none;
-  --orb-2: none;
-  --orb-3: none;
 }
 
 /* ─── Clean — Apple-style light ─── */
@@ -240,9 +231,6 @@ select:focus-visible {
 
   --success: #34c759;
 
-  --orb-1: none;
-  --orb-2: none;
-  --orb-3: none;
 }
 
 /* ─── Terracotta — warm light ─── */
@@ -291,9 +279,6 @@ select:focus-visible {
 
   --success: #1a8a5a;
 
-  --orb-1: none;
-  --orb-2: none;
-  --orb-3: none;
 }
 
 /* ─── Sage — cool green light ─── */
@@ -342,9 +327,6 @@ select:focus-visible {
 
   --success: #2a8a52;
 
-  --orb-1: none;
-  --orb-2: none;
-  --orb-3: none;
 }
 
 body {
@@ -369,25 +351,6 @@ body {
   position: relative;
 }
 
-/* Ambient gradient orbs behind everything */
-.app-layout::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background:
-    var(--orb-1),
-    var(--orb-2),
-    var(--orb-3);
-  animation: orbDrift 25s ease-in-out infinite alternate;
-  pointer-events: none;
-  z-index: 0;
-}
-
-@keyframes orbDrift {
-  0% { opacity: 1; }
-  50% { opacity: 0.7; }
-  100% { opacity: 1; }
-}
 
 /* ═══════════════════════════════════════════════════════
    Sidebar — smoked glass panel
@@ -552,6 +515,38 @@ body {
   font-size: 12px;
 }
 
+/* Loading skeletons */
+.session-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px;
+}
+
+.session-skeleton-title {
+  height: 12px;
+  width: 75%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg-glass) 25%, var(--bg-glass-hover) 50%, var(--bg-glass) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.session-skeleton-meta {
+  height: 8px;
+  width: 45%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-glass) 25%, var(--bg-glass-hover) 50%, var(--bg-glass) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  animation-delay: 0.15s;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* Project groups */
 .project-group { margin-bottom: 2px; }
 
@@ -589,7 +584,7 @@ body {
 .project-count {
   margin-left: auto;
   font-weight: 600;
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text-dim);
 }
 
@@ -632,7 +627,7 @@ body {
 }
 
 .session-tag {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   padding: 1px 5px;
   border-radius: var(--radius-pill);
@@ -647,10 +642,10 @@ body {
   z-index: 10000;
   min-width: 160px;
   padding: 4px;
-  background: var(--glass-bg);
+  background: var(--bg-frosted);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--glass-border);
+  border: 1px solid var(--border-hover);
   border-radius: var(--radius-md);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   animation: fadeIn 0.15s var(--ease);
@@ -662,7 +657,7 @@ body {
   gap: 8px;
   padding: 7px 10px;
   border-radius: var(--radius-sm);
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--text-primary);
   cursor: pointer;
   transition: background var(--duration) var(--ease);
@@ -706,7 +701,7 @@ body {
 }
 
 .search-snippet {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
   line-height: 1.4;
   margin-top: 2px;
@@ -724,7 +719,7 @@ body {
 }
 
 .session-title {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-primary);
   white-space: nowrap;
@@ -791,7 +786,7 @@ body {
   border: 1px solid var(--accent);
   border-radius: 6px;
   color: var(--text-primary);
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
   font-family: inherit;
   outline: none;
@@ -801,7 +796,7 @@ body {
 .session-meta {
   font-size: 10px;
   color: var(--text-dim);
-  margin-top: 2px;
+  margin-top: 4px;
 }
 
 /* Mobile overlay */
@@ -893,15 +888,21 @@ body {
   color: var(--text-primary);
 }
 
-/* Session cost pill */
-.session-cost {
+/* Pill — unified base for header pills */
+.pill {
   font-size: 10px;
-  color: var(--header-pill-text, var(--text-dim));
   font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
   padding: 3px 10px;
+  border-radius: var(--radius-pill);
   background: var(--bg-glass);
   border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  transition: all var(--duration) var(--ease);
+}
+
+/* Session cost pill */
+.session-cost {
+  color: var(--header-pill-text, var(--text-dim));
   display: none;
 }
 
@@ -909,13 +910,7 @@ body {
 
 /* Token usage pill */
 .token-usage {
-  font-size: 10px;
   color: var(--header-pill-text, var(--text-dim));
-  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
-  padding: 3px 10px;
-  background: var(--bg-glass);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
   display: none;
   transition: all 0.3s var(--ease);
   cursor: pointer;
@@ -960,7 +955,7 @@ body {
 .context-viz.hidden { display: none; }
 
 .context-viz-title {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -1682,7 +1677,7 @@ body {
 
 .message-usage {
   display: inline-block;
-  font-size: 9.5px;
+  font-size: 10px;
   color: var(--text-dim);
   font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
   margin-top: 2px;
@@ -1808,7 +1803,7 @@ pre {
   padding: 14px;
   overflow-x: auto;
   font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
-  font-size: 12.5px;
+  font-size: 12px;
   line-height: 1.6;
   margin: 0;
   border: none;
@@ -1993,7 +1988,7 @@ body.hide-thinking .thinking-block { display: none !important; }
 }
 
 .tool-status {
-  font-size: 9px;
+  font-size: 10px;
   padding: 2px 7px;
   border-radius: var(--radius-pill);
   text-transform: uppercase;
@@ -2634,7 +2629,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 .model-item-provider {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text-dim);
   margin-left: 6px;
   padding: 1px 5px;
@@ -2697,7 +2692,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   top: -10px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   color: white;
   background: var(--accent);
@@ -2892,7 +2887,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 
 .file-size {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text-dim);
   font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
   flex-shrink: 0;
