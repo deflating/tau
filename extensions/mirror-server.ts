@@ -19,7 +19,18 @@ import QRCode from "qrcode";
 
 const PORT = parseInt(process.env.TAU_MIRROR_PORT || "3001");
 // @ts-ignore — __dirname is provided by jiti at runtime
-const STATIC_DIR = process.env.TAU_STATIC_DIR || path.resolve(process.cwd(), "public");
+const STATIC_DIR = process.env.TAU_STATIC_DIR || findPublicDir();
+
+function findPublicDir(): string {
+    // 1. Check bundled "public" folder inside extension dir
+    const bundledPublic = path.resolve(__dirname, "public");
+    if (fs.existsSync(path.join(bundledPublic, "index.html"))) return bundledPublic;
+    // 2. Check sibling "public" folder (when running from pi-web-ui repo)
+    const siblingPublic = path.resolve(__dirname, "../public");
+    if (fs.existsSync(path.join(siblingPublic, "index.html"))) return siblingPublic;
+    // 3. Fall back to CWD/public
+    return path.resolve(process.cwd(), "public");
+}
 const SESSIONS_DIR = path.join(process.env.HOME || "~", ".pi/agent/sessions");
 const INSTANCES_DIR = path.join(process.env.HOME || "~", ".pi/tau-instances");
 
