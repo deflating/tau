@@ -18,7 +18,8 @@
   "pi": {
     "extensions": [
       "./extensions/mirror-server.ts"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/deflating/tau/main/docs/images/dark.png"
   },
   "dependencies": {
     "ws": "^8.16.0",
