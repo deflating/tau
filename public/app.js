@@ -14,7 +14,7 @@ import { Launcher } from './launcher.js';
 
 
 // Initialize components
-const wsUrl = `ws://${window.location.host}/ws`;
+const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + location.host + '/ws';
 const wsClient = new WebSocketClient(wsUrl);
 const state = new StateManager();
 const messageRenderer = new MessageRenderer(document.getElementById('messages'));
