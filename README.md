@@ -88,13 +88,14 @@ Type `/qr` in the terminal to show a QR code and scan it to access via your phon
 
 Environment variables (set before starting Pi):
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TAU_MIRROR_PORT` | `3001` | Server port |
-| `TAU_STATIC_DIR` | *(bundled)* | Override static files path |
-| `TAU_DISABLED` | `0` | Set to `1` to disable Tau (it stays installed but won't start the server) |
-| `TAU_USER` | *(none)* | HTTP Basic Auth username (both `TAU_USER` and `TAU_PASS` required to enable) |
-| `TAU_PASS` | *(none)* | HTTP Basic Auth password |
+| Variable          | Default     | Description                                                                  |
+|-------------------|-------------|------------------------------------------------------------------------------|
+| `TAU_MIRROR_PORT` | `3001`      | Server port                                                                  |
+| `TAU_HOST`        | `0.0.0.0`   | Bind address. Set to `127.0.0.1` to restrict to localhost only               |
+| `TAU_STATIC_DIR`  | *(bundled)* | Override static files path                                                   |
+| `TAU_DISABLED`    | `0`         | Set to `1` to disable Tau (it stays installed but won't start the server)    |
+| `TAU_USER`        | *(none)*    | HTTP Basic Auth username (both `TAU_USER` and `TAU_PASS` required to enable) |
+| `TAU_PASS`        | *(none)*    | HTTP Basic Auth password                                                     |
 
 ### Authentication
 
