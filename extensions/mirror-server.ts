@@ -15,6 +15,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import QRCode from "qrcode";
 
 // Load tau settings from ~/.pi/agent/settings.json (falls back to env vars)
@@ -79,8 +80,10 @@ function findPublicDir(): string {
     // Keep previous fallback behavior
     return path.resolve(process.cwd(), "public");
 }
-const SESSIONS_DIR = path.join(process.env.HOME || "~", ".pi/agent/sessions");
-const INSTANCES_DIR = path.join(process.env.HOME || "~", ".pi/tau-instances");
+const USER_HOME = process.env.HOME || process.env.USERPROFILE || os.homedir();
+const PI_AGENT_DIR = process.env.PI_CODING_AGENT_DIR || path.join(USER_HOME, ".pi", "agent");
+const SESSIONS_DIR = process.env.PI_CODING_AGENT_SESSION_DIR || path.join(PI_AGENT_DIR, "sessions");
+const INSTANCES_DIR = path.join(USER_HOME, ".pi", "tau-instances");
 
 // Instance registry — tracks all running Tau servers
 function registerInstance(port: number, sessionFile: string, cwd: string) {
