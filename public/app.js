@@ -93,6 +93,12 @@ fileSidebarUp.addEventListener('click', () => {
   if (parent) fileBrowser.load(parent);
 });
 
+fetch('/api/health').then(r => r.json()).then(data => {
+  const names = { win32: 'Explorer', darwin: 'Finder', linux: 'file manager' };
+  const name = names[data.platform] || 'file manager';
+  document.getElementById('file-sidebar-finder').title = `Open in ${name}`;
+}).catch(() => {});
+
 document.getElementById('file-sidebar-finder').addEventListener('click', () => {
   if (fileBrowser.currentPath) {
     fetch('/api/open', {
