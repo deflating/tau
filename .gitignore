@@ -1,5 +1,7 @@
 node_modules/
 .DS_Store
+.claude/settings.local.json
+.claude/custom-github-flow.md
 
 # Pi session exports
 pi-session-*.html
