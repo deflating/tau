@@ -130,6 +130,7 @@ function getRunningInstances(): Array<{ port: number; pid: number; sessionFile: 
  * If it doesn't, the HTTP server is the only thing keeping it alive.
  */
 function cleanupZombieInstances() {
+  if (process.platform === "win32") return;
   if (!fs.existsSync(INSTANCES_DIR)) return;
   const { execSync } = require("node:child_process");
   for (const file of fs.readdirSync(INSTANCES_DIR)) {
@@ -885,7 +886,7 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
 
     if (urlPath === "/api/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", mode: "mirror", mirrorUrl, tailscaleUrl: tailscaleUrl || undefined }));
+      res.end(JSON.stringify({ status: "ok", mode: "mirror", mirrorUrl, tailscaleUrl: tailscaleUrl || undefined, platform: process.platform }));
       return;
     }
 
@@ -981,9 +982,21 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
             return;
           }
           const { execFile } = await import("node:child_process");
-          execFile("open", [fp], (err) => {
-            if (err) console.error("[Mirror] open failed:", err.message);
-          });
+          if (process.platform === "win32") {
+            const { exec } = await import("node:child_process");
+            const safe = fp.replace(/'/g, "''").replace(/"/g, '');
+            exec(`powershell -NoProfile -WindowStyle Hidden -Command "& { $wsh = New-Object -ComObject WScript.Shell; $wsh.Run('explorer \\"${safe}\\"', 1, $false) }"`, (err) => {
+              if (err) console.error("[Mirror] open failed:", err.message);
+            });
+          } else if (process.platform === "darwin") {
+            execFile("open", [fp], (err) => {
+              if (err) console.error("[Mirror] open failed:", err.message);
+            });
+          } else {
+            execFile("xdg-open", [fp], (err) => {
+              if (err) console.error("[Mirror] open failed:", err.message);
+            });
+          }
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify({ ok: true }));
         } catch (err: any) {
@@ -1043,6 +1056,7 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
   // Sessions list endpoint
   // ═══════════════════════════════════════
   function getTmuxSessionFiles(): Set<string> {
+    if (process.platform === "win32") return new Set();
     try {
       const { execSync } = require("node:child_process");
       // Get tmux pane PIDs

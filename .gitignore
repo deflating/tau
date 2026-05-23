@@ -1,5 +1,11 @@
 node_modules/
 .DS_Store
+<<<<<<< Updated upstream
+=======
+.idea
+.claude/settings.local.json
+.claude/custom-github-flow.md
+>>>>>>> Stashed changes
 
 # Pi session exports
 pi-session-*.html
