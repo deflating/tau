@@ -103,10 +103,12 @@ export class FileBrowser {
         ${size ? `<span class="file-size">${size}</span>` : ''}
       `;
 
-      // Click: open directory or open file natively
+      // Click: navigate directory or insert file path into input
       el.addEventListener('click', () => {
         if (item.isDirectory) {
           this.load(item.path);
+        } else {
+          this.insertPath(item.path);
         }
       });
 
@@ -145,6 +147,16 @@ export class FileBrowser {
     }
   }
 
+  insertPath(filePath) {
+    const input = this.messageInput;
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    input.value = input.value.substring(0, start) + filePath + ' ' + input.value.substring(end);
+    input.selectionStart = input.selectionEnd = start + filePath.length + 1;
+    input.focus();
+    input.dispatchEvent(new Event('input'));
+  }
+
   setupDropTarget() {
     const input = this.messageInput;
 
@@ -163,19 +175,9 @@ export class FileBrowser {
       input.classList.remove('file-drop-hover');
 
       const filePath = e.dataTransfer.getData('text/plain');
-      if (filePath && filePath.startsWith('/')) {
-        // Insert file path at cursor
-        const start = input.selectionStart;
-        const end = input.selectionEnd;
-        const before = input.value.substring(0, start);
-        const after = input.value.substring(end);
-        const insert = filePath;
-        input.value = before + insert + after;
-        input.selectionStart = input.selectionEnd = start + insert.length;
-        input.focus();
-
-        // Trigger input event for auto-resize
-        input.dispatchEvent(new Event('input'));
+      // Accept Unix paths (/) and Windows paths (C:\ or C:/)
+      if (filePath && (filePath.startsWith('/') || /^[A-Za-z]:[\\\/]/.test(filePath))) {
+        this.insertPath(filePath);
       }
     });
   }
