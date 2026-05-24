@@ -73,9 +73,12 @@ export class FileBrowser {
 
   getParentPath() {
     if (!this.currentPath) return null;
-    const parts = this.currentPath.split('/');
-    parts.pop();
-    return parts.join('/') || '/';
+    const sep = this.currentPath.includes('\\') ? '\\' : '/';
+    const normalized = this.currentPath.endsWith(sep) ? this.currentPath.slice(0, -1) : this.currentPath;
+    const lastSep = normalized.lastIndexOf(sep);
+    if (lastSep <= 0) return sep === '/' ? '/' : null;
+    const parent = normalized.slice(0, lastSep);
+    return /^[A-Za-z]:$/.test(parent) ? parent + sep : parent;
   }
 
   render(items) {
