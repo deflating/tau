@@ -2354,6 +2354,32 @@ body.hide-thinking .thinking-block { display: none !important; }
 
 .image-preview:hover .image-preview-remove { opacity: 1; }
 
+.file-chip {
+  width: auto;
+  min-width: 64px;
+  max-width: 150px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+}
+
+.file-chip-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.file-chip-name {
+  font-size: 11px;
+  color: var(--text-secondary, rgba(255,255,255,0.5));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
 #chat-form {
   display: flex;
   gap: 8px;

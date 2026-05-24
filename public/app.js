@@ -9,7 +9,7 @@ import { ToolCardRenderer } from './tool-card.js';
 import { DialogHandler } from './dialogs.js';
 import { SessionSidebar } from './session-sidebar.js';
 import { themes, applyTheme, getCurrentTheme } from './themes.js';
-import { FileBrowser } from './file-browser.js';
+import { FileBrowser, getFileIcon } from './file-browser.js';
 import { Launcher } from './launcher.js';
 
 
@@ -73,7 +73,12 @@ const fileSidebarClose = document.getElementById('file-sidebar-close');
 const fileSidebarUp = document.getElementById('file-sidebar-up');
 const fileList = document.getElementById('file-list');
 const fileSidebarPath = document.getElementById('file-sidebar-path');
-const fileBrowser = new FileBrowser(fileList, fileSidebarPath, messageInput);
+const fileBrowser = new FileBrowser(fileList, fileSidebarPath, messageInput, (filePath) => {
+  const name = filePath.split(/[/\\]/).pop() || filePath;
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+  pendingFilePaths.push({ path: filePath, name, ext });
+  renderAttachmentPreviews();
+});
 
 fileSidebarToggle.addEventListener('click', () => {
   const isCollapsed = fileSidebar.classList.toggle('collapsed');
@@ -467,21 +472,26 @@ messageInput.addEventListener('input', () => {
 });
 
 // ═══════════════════════════════════════
-// Image attachment
+// Attachments (images + file browser paths)
 // ═══════════════════════════════════════
 
 const attachBtn = document.getElementById('attach-btn');
 const imageInput = document.getElementById('image-input');
 const imagePreviews = document.getElementById('image-previews');
-let pendingImages = []; // Array of { data: base64, mimeType: string }
 
-// Max dimension — resize images larger than this to reduce token cost & avoid API limits
+let pendingImages = [];     // { data: base64, mimeType }
+let pendingFilePaths = [];  // { path, name, ext } — from file browser (populated by callback above)
+
 const MAX_IMAGE_DIM = 2048;
 const VALID_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico']);
+
+function getFileChipIcon(name) {
+  return getFileIcon(name || 'file', false);
+}
 
 function processImageFile(file) {
   return new Promise((resolve, reject) => {
-    // Validate mime type
     const mimeType = VALID_MIME_TYPES.includes(file.type) ? file.type : 'image/png';
 
     const reader = new FileReader();
@@ -489,7 +499,6 @@ function processImageFile(file) {
     reader.onload = () => {
       const img = new Image();
       img.onload = () => {
-        // Resize if too large
         let { width, height } = img;
         if (width > MAX_IMAGE_DIM || height > MAX_IMAGE_DIM) {
           const scale = MAX_IMAGE_DIM / Math.max(width, height);
@@ -500,20 +509,13 @@ function processImageFile(file) {
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
 
-        // Output as PNG for screenshots/diagrams, JPEG for photos
         const outputMime = (mimeType === 'image/jpeg') ? 'image/jpeg' : 'image/png';
         const quality = (outputMime === 'image/jpeg') ? 0.85 : undefined;
         const dataUrl = canvas.toDataURL(outputMime, quality);
         const base64 = dataUrl.split(',')[1];
-
-        if (!base64) {
-          reject(new Error('Failed to encode image'));
-          return;
-        }
-
+        if (!base64) { reject(new Error('Failed to encode image')); return; }
         resolve({ data: base64, mimeType: outputMime });
       };
       img.onerror = () => reject(new Error('Failed to decode image'));
@@ -523,23 +525,22 @@ function processImageFile(file) {
   });
 }
 
-async function addImageFiles(files) {
+async function addAttachments(files) {
   for (const file of files) {
     if (!file.type.startsWith('image/')) continue;
     try {
-      const img = await processImageFile(file);
-      pendingImages.push(img);
+      pendingImages.push(await processImageFile(file));
     } catch (e) {
       console.error('[Tau] Image processing failed:', e);
     }
   }
-  renderImagePreviews();
+  renderAttachmentPreviews();
 }
 
 attachBtn.addEventListener('click', () => imageInput.click());
 
 imageInput.addEventListener('change', () => {
-  addImageFiles(imageInput.files);
+  addAttachments(imageInput.files);
   imageInput.value = '';
 });
 
@@ -547,7 +548,7 @@ imageInput.addEventListener('change', () => {
 messageInput.addEventListener('dragover', (e) => { e.preventDefault(); });
 messageInput.addEventListener('drop', (e) => {
   e.preventDefault();
-  addImageFiles(e.dataTransfer.files);
+  if (e.dataTransfer.files.length > 0) addAttachments(e.dataTransfer.files);
 });
 
 // Paste images
@@ -557,27 +558,81 @@ messageInput.addEventListener('paste', (e) => {
     if (!item.type.startsWith('image/')) continue;
     files.push(item.getAsFile());
   }
-  if (files.length) addImageFiles(files);
+  if (files.length) addAttachments(files);
 });
 
-function renderImagePreviews() {
+function makeRemoveBtn(onClick) {
+  const btn = document.createElement('button');
+  btn.className = 'image-preview-remove';
+  btn.setAttribute('aria-label', 'Remove');
+  btn.textContent = '✕';
+  btn.addEventListener('click', onClick);
+  return btn;
+}
+
+function renderAttachmentPreviews() {
   imagePreviews.innerHTML = '';
-  if (pendingImages.length === 0) {
-    imagePreviews.classList.add('hidden');
-    return;
-  }
+  const hasAny = pendingImages.length > 0 || pendingFilePaths.length > 0;
+  if (!hasAny) { imagePreviews.classList.add('hidden'); return; }
   imagePreviews.classList.remove('hidden');
+
+  // Binary image chips
   pendingImages.forEach((img, i) => {
     const el = document.createElement('div');
     el.className = 'image-preview';
-    el.innerHTML = `
-      <img src="data:${img.mimeType};base64,${img.data}" />
-      <button class="image-preview-remove" data-index="${i}">✕</button>
-    `;
-    el.querySelector('.image-preview-remove').addEventListener('click', () => {
-      pendingImages.splice(i, 1);
-      renderImagePreviews();
+    const thumb = document.createElement('img');
+    thumb.src = `data:${img.mimeType};base64,${img.data}`;
+    el.appendChild(thumb);
+    el.appendChild(makeRemoveBtn(() => { pendingImages.splice(i, 1); renderAttachmentPreviews(); }));
+    imagePreviews.appendChild(el);
+  });
+
+  // File browser path chips
+  pendingFilePaths.forEach((fp, i) => {
+    const el = document.createElement('div');
+    const removeBtn = makeRemoveBtn(() => {
+      const withSpace = fp.path + ' ';
+      messageInput.value = messageInput.value.includes(withSpace)
+        ? messageInput.value.replace(withSpace, '')
+        : messageInput.value.replace(fp.path, '');
+      messageInput.dispatchEvent(new Event('input'));
+      pendingFilePaths.splice(i, 1);
+      renderAttachmentPreviews();
     });
+
+    if (IMAGE_EXTS.has(fp.ext)) {
+      el.className = 'image-preview';
+      el.title = fp.path;
+      const thumb = document.createElement('img');
+      thumb.style.cssText = 'width:100%;height:100%;object-fit:cover';
+      thumb.src = `/api/file/preview?path=${encodeURIComponent(fp.path)}`;
+      thumb.onerror = () => {
+        el.classList.add('file-chip');
+        thumb.remove();
+        const icon = document.createElement('span');
+        icon.className = 'file-chip-icon';
+        icon.textContent = getFileChipIcon(fp.name);
+        const label = document.createElement('span');
+        label.className = 'file-chip-name';
+        label.textContent = fp.name;
+        el.insertBefore(label, removeBtn);
+        el.insertBefore(icon, label);
+      };
+      el.appendChild(thumb);
+    } else {
+      el.className = 'image-preview file-chip';
+      el.title = fp.path;
+      const icon = document.createElement('span');
+      icon.className = 'file-chip-icon';
+      icon.textContent = getFileChipIcon(fp.ext);
+      const label = document.createElement('span');
+      label.className = 'file-chip-name';
+      label.textContent = fp.name;
+      el.appendChild(icon);
+      el.appendChild(label);
+    }
+
+    el.appendChild(removeBtn);
     imagePreviews.appendChild(el);
   });
 }
@@ -590,31 +645,25 @@ let messageQueue = [];
 
 function sendMessage() {
   const message = messageInput.value.trim();
-  if (!message) return;
+  if (!message && pendingImages.length === 0) return;
 
   messageInput.value = '';
   messageInput.style.height = 'auto';
 
-  const cmd = {
-    type: 'prompt',
-    message,
-  };
+  const cmd = { type: 'prompt', message: message || '(see attached image)' };
 
   if (pendingImages.length > 0) {
     cmd.images = pendingImages.map(img => {
       console.log(`[Tau] Sending image: mimeType=${img.mimeType}, dataLen=${img.data?.length}`);
-      return {
-        type: 'image',
-        data: img.data,
-        mimeType: img.mimeType || 'image/png',
-      };
+      return { type: 'image', data: img.data, mimeType: img.mimeType || 'image/png' };
     });
     pendingImages = [];
-    renderImagePreviews();
   }
 
+  pendingFilePaths = [];
+  renderAttachmentPreviews();
+
   if (state.isStreaming) {
-    // Queue it — show as bubble above input
     messageQueue.push(cmd);
     lastSentMessage = message;
     renderQueuedMessages();

@@ -24,7 +24,7 @@ const FILE_ICONS = {
   default: '📄',
 };
 
-function getFileIcon(name, isDirectory) {
+export function getFileIcon(name, isDirectory) {
   if (isDirectory) return FILE_ICONS.directory;
   const ext = name.split('.').pop()?.toLowerCase() || '';
   return FILE_ICONS[ext] || FILE_ICONS.default;
@@ -38,10 +38,11 @@ function formatSize(bytes) {
 }
 
 export class FileBrowser {
-  constructor(container, pathEl, messageInput) {
+  constructor(container, pathEl, messageInput, onFileInserted = null) {
     this.container = container;
     this.pathEl = pathEl;
     this.messageInput = messageInput;
+    this.onFileInserted = onFileInserted;
     this.currentPath = null;
 
     this.setupDropTarget();
@@ -103,10 +104,12 @@ export class FileBrowser {
         ${size ? `<span class="file-size">${size}</span>` : ''}
       `;
 
-      // Click: open directory or open file natively
+      // Click: navigate directory or insert file path
       el.addEventListener('click', () => {
         if (item.isDirectory) {
           this.load(item.path);
+        } else {
+          this.insertPath(item.path);
         }
       });
 
@@ -145,6 +148,17 @@ export class FileBrowser {
     }
   }
 
+  insertPath(filePath) {
+    const input = this.messageInput;
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    input.value = input.value.substring(0, start) + filePath + ' ' + input.value.substring(end);
+    input.selectionStart = input.selectionEnd = start + filePath.length + 1;
+    input.focus();
+    input.dispatchEvent(new Event('input'));
+    if (this.onFileInserted) this.onFileInserted(filePath);
+  }
+
   setupDropTarget() {
     const input = this.messageInput;
 
@@ -163,19 +177,8 @@ export class FileBrowser {
       input.classList.remove('file-drop-hover');
 
       const filePath = e.dataTransfer.getData('text/plain');
-      if (filePath && filePath.startsWith('/')) {
-        // Insert file path at cursor
-        const start = input.selectionStart;
-        const end = input.selectionEnd;
-        const before = input.value.substring(0, start);
-        const after = input.value.substring(end);
-        const insert = filePath;
-        input.value = before + insert + after;
-        input.selectionStart = input.selectionEnd = start + insert.length;
-        input.focus();
-
-        // Trigger input event for auto-resize
-        input.dispatchEvent(new Event('input'));
+      if (filePath && (filePath.startsWith('/') || /^[A-Za-z]:[\\\/]/.test(filePath))) {
+        this.insertPath(filePath);
       }
     });
   }

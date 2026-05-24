@@ -508,7 +508,6 @@ export default function (pi: ExtensionAPI) {
               pi.sendUserMessage(command.message, { deliverAs: "followUp" });
             }
           } else {
-            // Build content with optional images
             if (command.images?.length) {
               const validMimes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
               const content: any[] = [{ type: "text", text: command.message || "(see attached image)" }];
@@ -517,7 +516,6 @@ export default function (pi: ExtensionAPI) {
                   console.error("[mirror-server] Skipping image: missing or invalid data");
                   continue;
                 }
-                // Strip data URL prefix if accidentally included
                 const data = img.data.includes(",") ? img.data.split(",")[1] : img.data;
                 const mimeType = (validMimes.includes(img.mimeType) ? img.mimeType : "image/png") as "image/png" | "image/jpeg" | "image/gif" | "image/webp";
                 console.log(`[mirror-server] Image: mimeType=${mimeType}, dataLen=${data.length}, rawMimeType=${img.mimeType}`);
@@ -526,14 +524,12 @@ export default function (pi: ExtensionAPI) {
                   data: data,
                   mimeType: mimeType,
                 };
-                // Defensive: verify mimeType is actually set (debug crash where it was missing)
                 if (!imageBlock.mimeType) {
                   console.error(`[mirror-server] BUG: mimeType is falsy after assignment! img.mimeType=${img.mimeType}, falling back to image/png`);
                   imageBlock.mimeType = "image/png";
                 }
                 content.push(imageBlock);
               }
-              // Only send content array if we actually have images, otherwise just text
               const hasImages = content.some((c: any) => c.type === "image");
               if (hasImages) {
                 pi.sendUserMessage(content);
@@ -943,6 +939,38 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
       const searchUrl = new URL(`http://localhost${req.url}`);
       const q = searchUrl.searchParams.get("q") || "";
       serveSearch(res, q);
+      return;
+    }
+
+    // File preview — serve image bytes for thumbnail display in the browser
+    if ((urlPath === "/api/file/preview" || urlPath.startsWith("/api/file/preview?")) && req.method === "GET") {
+      const previewUrl = new URL(`http://localhost${req.url}`);
+      const filePath = previewUrl.searchParams.get("path");
+      if (!filePath) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "path required" }));
+        return;
+      }
+      const IMAGE_PREVIEW_MIMES: Record<string, string> = {
+        png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+        gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", ico: "image/x-icon",
+      };
+      const ext = path.extname(filePath).toLowerCase().slice(1);
+      const mimeType = IMAGE_PREVIEW_MIMES[ext];
+      if (!mimeType) {
+        res.writeHead(415, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Not a previewable image" }));
+        return;
+      }
+      try {
+        const stat = fs.statSync(filePath);
+        if (!stat.isFile()) throw new Error("Not a file");
+        res.writeHead(200, { "Content-Type": mimeType, "Cache-Control": "max-age=60" });
+        fs.createReadStream(filePath).pipe(res);
+      } catch (err: any) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: err.message }));
+      }
       return;
     }
 
