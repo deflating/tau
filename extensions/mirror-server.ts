@@ -15,25 +15,52 @@ import { WebSocketServer, WebSocket } from "ws";
 import * as http from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import QRCode from "qrcode";
 
-// Load tau settings from ~/.pi/agent/settings.json (falls back to env vars)
-function loadTauSettings(): { port: number; autoStart: boolean; user: string; pass: string; authEnabled?: boolean; projectsDir?: string } {
-  let settings: any = {};
+type BindMode = "tailscale" | "localhost" | "both" | "all";
+
+type TauSettings = {
+  port: number;
+  autoStart: boolean;
+  user: string;
+  pass: string;
+  authEnabled?: boolean;
+  projectsDir?: string;
+  bindMode: BindMode;
+  requireTailscale: boolean;
+};
+
+function envBool(value: string | undefined): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (["1", "true", "yes", "on"].includes(value.toLowerCase())) return true;
+  if (["0", "false", "no", "off"].includes(value.toLowerCase())) return false;
+  return undefined;
+}
+
+function normalizeBindMode(value: any): BindMode | undefined {
+  return ["tailscale", "localhost", "both", "all"].includes(value) ? value : undefined;
+}
+
+// Load piRemote settings from ~/.pi/agent/settings.json (falls back to tau/env vars)
+function loadTauSettings(): TauSettings {
+  let allSettings: any = {};
   try {
     const settingsPath = path.join(process.env.HOME || "~", ".pi/agent/settings.json");
-    settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")).tau || {};
+    allSettings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
   } catch {}
+  const piRemote = allSettings.piRemote || {};
+  const tau = allSettings.tau || {};
+  const disabled = envBool(process.env.PI_REMOTE_DISABLED) ?? piRemote.disabled ?? envBool(process.env.TAU_DISABLED) ?? tau.disabled ?? false;
   return {
-    port: parseInt(process.env.TAU_MIRROR_PORT || settings.port || "3001"),
-    autoStart: !(
-      process.env.TAU_DISABLED === "1" || process.env.TAU_DISABLED === "true" ||
-      settings.disabled === true
-    ),
-    user: process.env.TAU_USER || settings.user || "",
-    pass: process.env.TAU_PASS || settings.pass || "",
-    authEnabled: settings.authEnabled,
-    projectsDir: process.env.TAU_PROJECTS_DIR || settings.projectsDir,
+    port: parseInt(process.env.PI_REMOTE_PORT || piRemote.port || process.env.TAU_MIRROR_PORT || tau.port || "3001"),
+    autoStart: disabled !== true,
+    user: process.env.TAU_USER || tau.user || "",
+    pass: process.env.TAU_PASS || tau.pass || "",
+    authEnabled: tau.authEnabled,
+    projectsDir: process.env.PI_REMOTE_PROJECTS_DIR || piRemote.projectsDir || process.env.TAU_PROJECTS_DIR || tau.projectsDir,
+    bindMode: normalizeBindMode(process.env.PI_REMOTE_BIND_MODE) || normalizeBindMode(piRemote.bindMode) || "tailscale",
+    requireTailscale: envBool(process.env.PI_REMOTE_REQUIRE_TAILSCALE) ?? (piRemote.requireTailscale !== undefined ? piRemote.requireTailscale !== false : true),
   };
 }
 
@@ -45,7 +72,7 @@ const AUTH_PASS = TAU_SETTINGS.pass;
 const AUTH_CONFIGURED = !!(AUTH_USER && AUTH_PASS);
 let authEnabled = AUTH_CONFIGURED && TAU_SETTINGS.authEnabled !== false;
 // @ts-ignore — __dirname is provided by jiti at runtime
-const STATIC_DIR = process.env.TAU_STATIC_DIR || findPublicDir();
+const STATIC_DIR = process.env.PI_REMOTE_STATIC_DIR || process.env.TAU_STATIC_DIR || findPublicDir();
 
 function findPublicDir(): string {
     const candidates: string[] = [];
@@ -218,8 +245,45 @@ function sendAuthRequired(res: http.ServerResponse) {
   res.end(JSON.stringify({ error: "Unauthorized" }));
 }
 
+function normalizeRemoteAddress(address: string | undefined): string {
+  if (!address) return "";
+  if (address.startsWith("::ffff:")) return address.slice(7);
+  return address === "::1" ? "127.0.0.1" : address;
+}
+
+function isLoopbackAddress(address: string | undefined): boolean {
+  const normalized = normalizeRemoteAddress(address);
+  return normalized === "127.0.0.1" || normalized.startsWith("127.") || normalized === "localhost";
+}
+
+function isTailscaleIpv4(address: string | undefined): boolean {
+  const normalized = normalizeRemoteAddress(address);
+  const parts = normalized.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  return parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
+}
+
+function findTailscaleIpv4(): string | null {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets).sort()) {
+    for (const net of nets[name] || []) {
+      if (net.family === "IPv4" && !net.internal && isTailscaleIpv4(net.address)) {
+        console.log(`[Mirror] Selected Tailscale IP ${net.address} on ${name}`);
+        return net.address;
+      }
+    }
+  }
+  return null;
+}
+
+function sendForbidden(res: http.ServerResponse) {
+  res.writeHead(403, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ error: "Forbidden" }));
+}
+
 export default function (pi: ExtensionAPI) {
   let server: http.Server | null = null;
+  let servers: http.Server[] = [];
   let wss: WebSocketServer | null = null;
   let heartbeatTimer: NodeJS.Timeout | null = null;
   const clients = new Set<WebSocket>();
@@ -253,6 +317,7 @@ export default function (pi: ExtensionAPI) {
 
   let mirrorUrl = "";
   let tailscaleUrl = "";
+  let activeBindMode: BindMode | "localhost-fallback" = TAU_SETTINGS.bindMode;
 
   // ═══════════════════════════════════════
   // Helper: stop the server
@@ -270,13 +335,15 @@ export default function (pi: ExtensionAPI) {
       wss.close();
       wss = null;
     }
-    if (server) {
-      server.close();
-      server = null;
+    for (const activeServer of servers) {
+      activeServer.close();
     }
+    servers = [];
+    server = null;
     unregisterInstance();
     mirrorUrl = "";
     tailscaleUrl = "";
+    activeBindMode = TAU_SETTINGS.bindMode;
   }
 
   // ═══════════════════════════════════════
@@ -806,11 +873,25 @@ export default function (pi: ExtensionAPI) {
     }
   }
 
+  function isRequestAllowed(req: http.IncomingMessage, listenerKind: "localhost" | "tailscale" | "all"): boolean {
+    if (!TAU_SETTINGS.requireTailscale) return true;
+    const remoteAddress = req.socket.remoteAddress;
+    if (listenerKind === "localhost") return isLoopbackAddress(remoteAddress);
+    if (listenerKind === "tailscale") return isTailscaleIpv4(remoteAddress) || isLoopbackAddress(remoteAddress);
+    if (activeBindMode === "all") return isTailscaleIpv4(remoteAddress) || isLoopbackAddress(remoteAddress);
+    return true;
+  }
+
   // ═══════════════════════════════════════
   // Static file server
   // ═══════════════════════════════════════
   function serveStaticFile(req: http.IncomingMessage, res: http.ServerResponse) {
     let urlPath = req.url || "/";
+
+    if (!isRequestAllowed(req, (req.socket as any).__piRemoteListenerKind || "all")) {
+      sendForbidden(res);
+      return;
+    }
 
     // Auth gate — exempt /api/health for monitoring
     if (authEnabled && urlPath !== "/api/health" && !checkBasicAuth(req)) {
@@ -876,18 +957,16 @@ export default function (pi: ExtensionAPI) {
         res.end(JSON.stringify({ error: "Server not ready" }));
         return;
       }
-      const qrPromises = [QRCode.toDataURL(mirrorUrl, { width: 256, margin: 2 })];
-      if (tailscaleUrl) qrPromises.push(QRCode.toDataURL(tailscaleUrl, { width: 256, margin: 2 }));
-      Promise.all(qrPromises).then((dataUrls: string[]) => {
-        const tsSection = tailscaleUrl && dataUrls[1]
-          ? `<p style="margin-top:24px;color:rgba(255,255,255,0.3);font-size:11px">TAILSCALE</p><img src="${dataUrls[1]}" width="256" height="256" alt="Tailscale QR"><a href="${tailscaleUrl}">${tailscaleUrl}</a>`
-          : "";
+      const qrTarget = tailscaleUrl || mirrorUrl;
+      QRCode.toDataURL(qrTarget, { width: 256, margin: 2 }).then((dataUrl: string) => {
+        const label = tailscaleUrl ? "TAILSCALE" : activeBindMode === "localhost" || activeBindMode === "localhost-fallback" ? "LOCAL ONLY" : activeBindMode.toUpperCase();
+        const note = tailscaleUrl ? "Scan to open Tau over Tailscale" : "Local-only URL; phone access requires manual forwarding.";
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(`<!DOCTYPE html>
 <html><head><meta name="viewport" content="width=device-width"><title>Tau — Connect</title>
 <style>body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#131316;color:#fff;font-family:-apple-system,sans-serif}
 img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rgba(255,255,255,0.5);font-size:13px;margin-top:8px}</style>
-</head><body><p style="color:rgba(255,255,255,0.3);font-size:11px">LAN</p><img src="${dataUrls[0]}" width="256" height="256" alt="QR Code"><a href="${mirrorUrl}">${mirrorUrl}</a>${tsSection}<p style="margin-top:16px">Scan to open Tau on your phone</p></body></html>`);
+</head><body><p style="color:rgba(255,255,255,0.3);font-size:11px">${label}</p><img src="${dataUrl}" width="256" height="256" alt="QR Code"><a href="${qrTarget}">${qrTarget}</a><p style="margin-top:16px">${note}</p></body></html>`);
       }).catch((e: any) => {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: e.message }));
@@ -897,7 +976,7 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
 
     if (urlPath === "/api/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ status: "ok", mode: "mirror", mirrorUrl, tailscaleUrl: tailscaleUrl || undefined }));
+      res.end(JSON.stringify({ status: "ok", mode: "mirror", bindMode: activeBindMode, requireTailscale: TAU_SETTINGS.requireTailscale, mirrorUrl, tailscaleUrl: tailscaleUrl || undefined }));
       return;
     }
 
@@ -1474,23 +1553,35 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
     // Clean up zombie instances from killed tmux panes etc.
     cleanupZombieInstances();
 
-    server = http.createServer(serveStaticFile);
     wss = new WebSocketServer({ noServer: true });
 
-    server.on("upgrade", (request, socket, head) => {
-      if (authEnabled && !checkBasicAuth(request)) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"Tau\"\r\n\r\n");
-        socket.destroy();
-        return;
-      }
-      if (request.url === "/ws") {
-        wss!.handleUpgrade(request, socket, head, (ws) => {
-          wss!.emit("connection", ws, request);
-        });
-      } else {
-        socket.destroy();
-      }
-    });
+    const makeServer = (listenerKind: "localhost" | "tailscale" | "all") => {
+      const httpServer = http.createServer((req, res) => {
+        (req.socket as any).__piRemoteListenerKind = listenerKind;
+        serveStaticFile(req, res);
+      });
+      httpServer.on("upgrade", (request, socket, head) => {
+        (request.socket as any).__piRemoteListenerKind = listenerKind;
+        if (!isRequestAllowed(request, listenerKind)) {
+          socket.write("HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n{\"error\":\"Forbidden\"}");
+          socket.destroy();
+          return;
+        }
+        if (authEnabled && !checkBasicAuth(request)) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"Tau\"\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+        if (request.url === "/ws") {
+          wss!.handleUpgrade(request, socket, head, (ws) => {
+            wss!.emit("connection", ws, request);
+          });
+        } else {
+          socket.destroy();
+        }
+      });
+      return httpServer;
+    };
 
     wss.on("connection", (ws) => {
       console.log("[Mirror] Browser client connected");
@@ -1550,73 +1641,67 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
       }
     }, 20000);
 
-    const tryListen = (port: number, maxAttempts = 10) => {
-      server!.listen(port, "0.0.0.0", () => {
-        onListening(port);
+    const tailscaleIp = findTailscaleIpv4();
+    let requestedMode = TAU_SETTINGS.bindMode;
+    if ((requestedMode === "tailscale" || requestedMode === "both") && !tailscaleIp) {
+      activeBindMode = "localhost-fallback";
+      requestedMode = "localhost";
+      console.warn("[Mirror] Tailscale bind requested but no 100.64.0.0/10 address was found; falling back to localhost only.");
+      ctx.ui.notify("Pi Remote: no Tailscale IP found; falling back to localhost only", "warning");
+    } else {
+      activeBindMode = requestedMode;
+    }
+
+    const getBindings = (): Array<{ host: string; kind: "localhost" | "tailscale" | "all" }> => {
+      if (requestedMode === "localhost") return [{ host: "127.0.0.1", kind: "localhost" }];
+      if (requestedMode === "tailscale") return [{ host: tailscaleIp!, kind: "tailscale" }];
+      if (requestedMode === "both") return [{ host: "127.0.0.1", kind: "localhost" }, { host: tailscaleIp!, kind: "tailscale" }];
+      return [{ host: "0.0.0.0", kind: "all" }];
+    };
+
+    const listenOne = (httpServer: http.Server, port: number, host: string) => new Promise<void>((resolve, reject) => {
+      httpServer.once("error", reject);
+      httpServer.listen(port, host, () => {
+        httpServer.removeListener("error", reject);
+        resolve();
       });
-      server!.once("error", (err: any) => {
+    });
+
+    const tryListen = async (port: number, maxAttempts = 10) => {
+      const bindings = getBindings();
+      const candidateServers = bindings.map((binding) => makeServer(binding.kind));
+      try {
+        await Promise.all(bindings.map((binding, index) => listenOne(candidateServers[index], port, binding.host)));
+        servers = candidateServers;
+        server = servers[0] || null;
+        onListening(port, bindings.map((binding) => binding.host));
+      } catch (err: any) {
+        for (const candidate of candidateServers) candidate.close();
         if (err.code === "EADDRINUSE" && port < PORT + maxAttempts) {
-          console.log(`[Mirror] Port ${port} in use, trying ${port + 1}...`);
-          server!.removeAllListeners("error");
+          console.log(`[Mirror] Port ${port} in use on one or more bindings, trying ${port + 1}...`);
           tryListen(port + 1, maxAttempts);
         } else {
           console.error(`[Mirror] Failed to start server:`, err.message);
         }
-      });
+      }
     };
 
-    const onListening = (port: number) => {
-      // Get local IP for display — prefer en0/en1 (WiFi/Ethernet) over bridges/VPNs
-      const nets = require("node:os").networkInterfaces();
-      let localIp = "localhost";
-      let fallbackIp = "";
-      const preferred = ["en0", "en1"]; // WiFi and Ethernet adapters
-      for (const name of preferred) {
-        for (const net of nets[name] || []) {
-          if (net.family === "IPv4" && !net.internal) {
-            localIp = net.address;
-            break;
-          }
-        }
-        if (localIp !== "localhost") break;
-      }
-      // Fallback: any LAN IP that isn't a bridge or VPN
-      if (localIp === "localhost") {
-        for (const name of Object.keys(nets)) {
-          if (name.startsWith("bridge") || name.startsWith("utun") || name.startsWith("lo")) continue;
-          for (const net of nets[name] || []) {
-            if (net.family === "IPv4" && !net.internal && (net.address.startsWith("192.168.") || net.address.startsWith("10."))) {
-              localIp = net.address;
-              break;
-            }
-          }
-          if (localIp !== "localhost") break;
-        }
-      }
-      if (localIp === "localhost" && fallbackIp) localIp = fallbackIp;
-
-      // Detect Tailscale IP (100.x.x.x CGNAT range)
-      let tailscaleIp = "";
-      for (const name of Object.keys(nets)) {
-        for (const net of nets[name] || []) {
-          if (net.family === "IPv4" && !net.internal && net.address.startsWith("100.")) {
-            tailscaleIp = net.address;
-            break;
-          }
-        }
-        if (tailscaleIp) break;
-      }
-
-      mirrorUrl = `http://${localIp}:${port}`;
+    const onListening = (port: number, hosts: string[]) => {
       tailscaleUrl = tailscaleIp ? `http://${tailscaleIp}:${port}` : "";
-      console.log(`[Mirror] Tau mirror server running on ${mirrorUrl}${tailscaleUrl ? `  •  Tailscale: ${tailscaleUrl}` : ""}`);
-      ctx.ui.setStatus("mirror", `Mirror: ${localIp}:${port}${tailscaleIp ? ` • TS: ${tailscaleIp}:${port}` : ""}`);
+      if (activeBindMode === "tailscale") mirrorUrl = tailscaleUrl;
+      else if (activeBindMode === "both") mirrorUrl = tailscaleUrl || `http://127.0.0.1:${port}`;
+      else if (activeBindMode === "all") mirrorUrl = `http://0.0.0.0:${port}`;
+      else mirrorUrl = `http://127.0.0.1:${port}`;
 
-      // Register this instance
+      const modeLabel = activeBindMode === "all" ? "UNSAFE all interfaces" : activeBindMode;
+      console.log(`[Mirror] Pi Remote running (${modeLabel}, requireTailscale=${TAU_SETTINGS.requireTailscale}) on ${hosts.join(", ")} port ${port}${tailscaleUrl ? ` • Tailscale: ${tailscaleUrl}` : ""}`);
+      ctx.ui.setStatus("mirror", `Pi Remote: ${modeLabel} ${mirrorUrl}`);
+
       const sessionFile = ctx.sessionManager.getSessionFile() || "";
       registerInstance(port, sessionFile, ctx.cwd || process.cwd());
 
-      ctx.ui.notify(`Tau mirror: ${mirrorUrl}${tailscaleUrl ? `  •  Tailscale: ${tailscaleUrl}` : ""}  •  /qr for QR code`, "info");
+      const level = activeBindMode === "all" ? "warning" : "info";
+      ctx.ui.notify(`Pi Remote: ${modeLabel} ${mirrorUrl}${tailscaleUrl && mirrorUrl !== tailscaleUrl ? ` • TS: ${tailscaleUrl}` : ""} • /qr for QR code`, level as any);
     };
 
     tryListen(PORT);

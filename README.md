@@ -1,6 +1,6 @@
 # Tau
 
-A web UI that mirrors your [Pi](https://github.com/badlogic/pi-mono) terminal session in the browser. No separate server — it runs as a Pi extension inside your existing process.
+A fork of the original Tau project: a web UI that mirrors your [Pi](https://github.com/badlogic/pi-mono) terminal session in the browser. No separate server — it runs as a Pi extension inside your existing process.
 
 ![Tau dark mode](docs/images/dark.png)
 
@@ -34,10 +34,10 @@ pi install git:github.com/deflating/tau
 ## Usage
 
 1. Start Pi normally in your terminal
-2. Open the URL shown in the status bar (default: `http://localhost:3001`)
+2. Open the URL shown in the status bar (default: Tailscale-only if a Tailscale IP is available, otherwise `http://127.0.0.1:3001`)
 3. That's it
 
-Type `/qr` in the terminal to show a QR code and scan it to access via your phone.
+Type `/qr` in the terminal to show a QR code. When Tailscale is available, the QR code points at the Tailscale URL for phone access.
 
 ## Features
 
@@ -86,13 +86,42 @@ Type `/qr` in the terminal to show a QR code and scan it to access via your phon
 
 ## Configuration
 
+Tau now prefers the `piRemote` namespace in `~/.pi/agent/settings.json`:
+
+```json
+{
+  "piRemote": {
+    "port": 3001,
+    "disabled": false,
+    "bindMode": "tailscale",
+    "requireTailscale": true,
+    "projectsDir": "~/vibe_coding"
+  }
+}
+```
+
+Bind modes:
+
+- `tailscale` (default): bind only to the detected Tailscale IPv4 address (`100.64.0.0/10`); falls back to localhost with a warning if unavailable.
+- `localhost`: bind only to `127.0.0.1`.
+- `both`: bind separate listeners on `127.0.0.1` and the Tailscale IP.
+- `all`: explicitly unsafe opt-in; binds `0.0.0.0`.
+
+`requireTailscale` defaults to `true` and rejects non-Tailscale remote addresses on externally reachable listeners. Localhost access remains allowed for localhost listeners.
+
 Environment variables (set before starting Pi):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TAU_MIRROR_PORT` | `3001` | Server port |
-| `TAU_STATIC_DIR` | *(bundled)* | Override static files path |
-| `TAU_DISABLED` | `0` | Set to `1` to disable Tau (it stays installed but won't start the server) |
+| `PI_REMOTE_PORT` | `3001` | Server port |
+| `PI_REMOTE_BIND_MODE` | `tailscale` | `tailscale`, `localhost`, `both`, or explicit unsafe `all` |
+| `PI_REMOTE_REQUIRE_TAILSCALE` | `true` | Reject non-Tailscale clients on external listeners |
+| `PI_REMOTE_STATIC_DIR` | *(bundled)* | Override static files path |
+| `PI_REMOTE_DISABLED` | `0` | Set to `1` to disable Tau (it stays installed but won't start the server) |
+| `PI_REMOTE_PROJECTS_DIR` | *(none)* | Projects directory for the project browser |
+| `TAU_MIRROR_PORT` | `3001` | Legacy fallback server port |
+| `TAU_STATIC_DIR` | *(bundled)* | Legacy fallback static files path |
+| `TAU_DISABLED` | `0` | Legacy fallback disable flag |
 | `TAU_USER` | *(none)* | HTTP Basic Auth username (both `TAU_USER` and `TAU_PASS` required to enable) |
 | `TAU_PASS` | *(none)* | HTTP Basic Auth password |
 
