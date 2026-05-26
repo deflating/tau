@@ -82,6 +82,18 @@ function findPublicDir(): string {
 const SESSIONS_DIR = path.join(process.env.HOME || "~", ".pi/agent/sessions");
 const INSTANCES_DIR = path.join(process.env.HOME || "~", ".pi/tau-instances");
 
+function isTextContentBlock(block: unknown): block is { type: "text"; text: string } {
+  if (!block || typeof block !== "object") return false;
+  const record = block as Record<string, unknown>;
+  return record.type === "text" && typeof record.text === "string";
+}
+
+function hasSessionCwd(entry: unknown): entry is { type: "session"; cwd: string } {
+  if (!entry || typeof entry !== "object") return false;
+  const record = entry as Record<string, unknown>;
+  return record.type === "session" && typeof record.cwd === "string" && record.cwd.length > 0;
+}
+
 // Instance registry — tracks all running Tau servers
 function registerInstance(port: number, sessionFile: string, cwd: string) {
   fs.mkdirSync(INSTANCES_DIR, { recursive: true });
@@ -378,7 +390,7 @@ export default function (pi: ExtensionAPI) {
     let text = "";
     if (typeof content === "string") text = content;
     else if (Array.isArray(content)) {
-      const tb = content.find((b: any) => b.type === "text");
+      const tb = content.find(isTextContentBlock);
       if (tb) text = tb.text;
     }
     if (text) userMessages.push(text.substring(0, 300));
@@ -956,8 +968,8 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
         if (!explicitPath && latestCtx) {
           try {
             const entries = latestCtx.sessionManager.getEntries();
-            const sessionEntry = entries.find((e: any) => e.type === "session");
-            if (sessionEntry?.cwd) dirPath = sessionEntry.cwd;
+            const sessionEntry = (entries as unknown[]).find(hasSessionCwd);
+            if (sessionEntry) dirPath = sessionEntry.cwd;
           } catch {}
         }
         serveFileList(res, dirPath);
