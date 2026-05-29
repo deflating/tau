@@ -130,6 +130,7 @@ function getRunningInstances(): Array<{ port: number; pid: number; sessionFile: 
  * If it doesn't, the HTTP server is the only thing keeping it alive.
  */
 function cleanupZombieInstances() {
+  if (process.platform === "win32") return;
   if (!fs.existsSync(INSTANCES_DIR)) return;
   const { execSync } = require("node:child_process");
   for (const file of fs.readdirSync(INSTANCES_DIR)) {
@@ -1055,6 +1056,7 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
   // Sessions list endpoint
   // ═══════════════════════════════════════
   function getTmuxSessionFiles(): Set<string> {
+    if (process.platform === "win32") return new Set();
     try {
       const { execSync } = require("node:child_process");
       // Get tmux pane PIDs
