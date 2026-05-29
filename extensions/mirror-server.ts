@@ -19,7 +19,7 @@ import * as os from "node:os";
 import QRCode from "qrcode";
 
 // Load tau settings from ~/.pi/agent/settings.json (falls back to env vars)
-function loadTauSettings(): { port: number; autoStart: boolean; user: string; pass: string; authEnabled?: boolean; projectsDir?: string } {
+function loadTauSettings(): { port: number; host: string; autoStart: boolean; user: string; pass: string; authEnabled?: boolean; projectsDir?: string } {
   let settings: any = {};
   try {
     const settingsPath = path.join(process.env.HOME || "~", ".pi/agent/settings.json");
@@ -27,6 +27,7 @@ function loadTauSettings(): { port: number; autoStart: boolean; user: string; pa
   } catch {}
   return {
     port: parseInt(process.env.TAU_MIRROR_PORT || settings.port || "3001"),
+    host: process.env.TAU_HOST || settings.host || "0.0.0.0",
     autoStart: !(
       process.env.TAU_DISABLED === "1" || process.env.TAU_DISABLED === "true" ||
       settings.disabled === true
@@ -40,6 +41,7 @@ function loadTauSettings(): { port: number; autoStart: boolean; user: string; pa
 
 const TAU_SETTINGS = loadTauSettings();
 const PORT = TAU_SETTINGS.port;
+const HOST = TAU_SETTINGS.host;
 const TAU_AUTO_START = TAU_SETTINGS.autoStart;
 const AUTH_USER = TAU_SETTINGS.user;
 const AUTH_PASS = TAU_SETTINGS.pass;
@@ -1556,7 +1558,7 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
     }, 20000);
 
     const tryListen = (port: number, maxAttempts = 10) => {
-      server!.listen(port, "0.0.0.0", () => {
+      server!.listen(port, HOST, () => {
         onListening(port);
       });
       server!.once("error", (err: any) => {
@@ -1571,45 +1573,49 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
     };
 
     const onListening = (port: number) => {
-      // Get local IP for display — prefer en0/en1 (WiFi/Ethernet) over bridges/VPNs
-      const nets = require("node:os").networkInterfaces();
+      const isLoopback = HOST === "127.0.0.1" || HOST === "::1" || HOST === "localhost";
+
       let localIp = "localhost";
-      let fallbackIp = "";
-      const preferred = ["en0", "en1"]; // WiFi and Ethernet adapters
-      for (const name of preferred) {
-        for (const net of nets[name] || []) {
-          if (net.family === "IPv4" && !net.internal) {
-            localIp = net.address;
-            break;
-          }
-        }
-        if (localIp !== "localhost") break;
-      }
-      // Fallback: any LAN IP that isn't a bridge or VPN
-      if (localIp === "localhost") {
-        for (const name of Object.keys(nets)) {
-          if (name.startsWith("bridge") || name.startsWith("utun") || name.startsWith("lo")) continue;
+      let tailscaleIp = "";
+
+      if (!isLoopback) {
+        // Get local IP for display — prefer en0/en1 (WiFi/Ethernet) over bridges/VPNs
+        const nets = require("node:os").networkInterfaces();
+        let fallbackIp = "";
+        const preferred = ["en0", "en1"];
+        for (const name of preferred) {
           for (const net of nets[name] || []) {
-            if (net.family === "IPv4" && !net.internal && (net.address.startsWith("192.168.") || net.address.startsWith("10."))) {
+            if (net.family === "IPv4" && !net.internal) {
               localIp = net.address;
               break;
             }
           }
           if (localIp !== "localhost") break;
         }
-      }
-      if (localIp === "localhost" && fallbackIp) localIp = fallbackIp;
-
-      // Detect Tailscale IP (100.x.x.x CGNAT range)
-      let tailscaleIp = "";
-      for (const name of Object.keys(nets)) {
-        for (const net of nets[name] || []) {
-          if (net.family === "IPv4" && !net.internal && net.address.startsWith("100.")) {
-            tailscaleIp = net.address;
-            break;
+        if (localIp === "localhost") {
+          for (const name of Object.keys(nets)) {
+            if (name.startsWith("bridge") || name.startsWith("utun") || name.startsWith("lo")) continue;
+            for (const net of nets[name] || []) {
+              if (net.family === "IPv4" && !net.internal && (net.address.startsWith("192.168.") || net.address.startsWith("10."))) {
+                localIp = net.address;
+                break;
+              }
+            }
+            if (localIp !== "localhost") break;
           }
         }
-        if (tailscaleIp) break;
+        if (localIp === "localhost" && fallbackIp) localIp = fallbackIp;
+
+        // Detect Tailscale IP (100.x.x.x CGNAT range)
+        for (const name of Object.keys(nets)) {
+          for (const net of nets[name] || []) {
+            if (net.family === "IPv4" && !net.internal && net.address.startsWith("100.")) {
+              tailscaleIp = net.address;
+              break;
+            }
+          }
+          if (tailscaleIp) break;
+        }
       }
 
       mirrorUrl = `http://${localIp}:${port}`;
