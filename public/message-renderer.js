@@ -170,7 +170,17 @@ export class MessageRenderer {
       contentDiv.classList.remove('streaming');
       // Get the raw text (exclude thinking block text)
       const streamingText = contentDiv.querySelector('.streaming-text');
-      const rawText = streamingText ? streamingText.textContent : contentDiv.textContent;
+      let rawText;
+      if (streamingText) {
+        rawText = streamingText.textContent;
+      } else if (contentDiv.querySelector('.streaming-thinking')) {
+        // Thinking-only message (no assistant text). contentDiv.textContent would
+        // otherwise be the thinking text itself, causing it to be re-rendered as
+        // plain text below the thinking block.
+        rawText = '';
+      } else {
+        rawText = contentDiv.textContent;
+      }
       
       // Rebuild with thinking block (if any) + markdown text
       let html = '';
