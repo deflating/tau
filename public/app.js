@@ -1048,7 +1048,7 @@ newSessionBtn.addEventListener('click', () => {
   toolCardRenderer.clear();
   messageRenderer.renderWelcome();
   sidebar.clearActive();
-  viewingActiveSession = false;
+  viewingActiveSession = true;
   updateMirrorInputState();
 });
 
