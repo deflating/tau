@@ -21,6 +21,26 @@ export class MessageRenderer {
     this.container.innerHTML = '';
   }
 
+  /**
+   * Render KaTeX math in the given element if the library is loaded.
+   * Safe to call on streaming/escaped content — KaTeX only processes $...$ patterns.
+   */
+  _renderMath(element) {
+    if (typeof renderMathInElement !== 'undefined') {
+      try {
+        renderMathInElement(element, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+          ],
+          throwOnError: false,
+        });
+      } catch (e) {
+        // KaTeX not loaded or rendering failed — math stays as raw TeX
+      }
+    }
+  }
+
   renderWelcome() {
     this.container.innerHTML = `
       <div class="welcome">
@@ -59,6 +79,7 @@ export class MessageRenderer {
     `;
     this._setupCopyBtn(div);
     this.container.appendChild(div);
+    this._renderMath(div);
     if (!isHistory) this.scrollToBottom();
   }
 
@@ -102,8 +123,11 @@ export class MessageRenderer {
       ${!isStreaming ? '<button class="message-copy-btn" aria-label="Copy message"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>' : ''}
     `;
 
-    if (!isStreaming) this._setupCopyBtn(div);
+    if (!isStreaming) {
+      this._setupCopyBtn(div);
+    }
     this.container.appendChild(div);
+    if (!isStreaming) this._renderMath(div);
     if (!isHistory) this.scrollToBottom();
 
     return div;
@@ -179,6 +203,8 @@ export class MessageRenderer {
       }
       html += renderMarkdown(rawText);
       contentDiv.innerHTML = html;
+      // Render math after markdown is applied
+      this._renderMath(contentDiv);
     }
 
     // Add copy button after streaming finishes

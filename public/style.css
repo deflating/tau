@@ -3439,3 +3439,48 @@ body.hide-thinking .thinking-block { display: none !important; }
   border-radius: var(--radius-xs);
   font-size: 11px;
 }
+
+/* ═══════════════════════════════════════════════════════
+   KaTeX Math Rendering
+   ═══════════════════════════════════════════════════════ */
+
+/* Display math placeholder (raw $...$ before KaTeX renders) */
+.math-display {
+  display: block;
+  margin: 1em 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* KaTeX rendered display math */
+.katex-display {
+  margin: 1em 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+
+.katex-display > .katex {
+  white-space: normal;
+}
+
+/* Inline math */
+.katex {
+  font-size: 1.1em;
+}
+
+/* Ensure KaTeX inherits theme text color for light/dark modes */
+.katex .mathnormal,
+.katex .mord {
+  color: inherit;
+}
+
+/* Scrollable overflow for very wide formulas */
+.katex-display > .katex {
+  max-width: 100%;
+}
+
+.katex-html {
+  white-space: normal;
+}

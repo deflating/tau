@@ -19,6 +19,16 @@ export function renderMarkdown(text) {
     return `%%CODEBLOCK_${idx}%%`;
   });
 
+  // Extract standalone display math blocks ($$...$$ on their own lines).
+  // Multiline ^/$ match only when $$ is alone on a line (with optional whitespace).
+  // Inline/same-line $$...$$ is left for renderInline() to protect.
+  const displayMath = [];
+  text = text.replace(/^[ \t]*\$\$[ \t]*\n([\s\S]*?)\n[ \t]*\$\$[ \t]*$/gm, (fullMatch, math) => {
+    const idx = displayMath.length;
+    displayMath.push(math.trim());
+    return `%%DMATH_${idx}%%`;
+  });
+
   // Split into lines and process block-level elements
   const lines = text.split('\n');
   let html = '';
@@ -61,6 +71,16 @@ export function renderMarkdown(text) {
 
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
+
+    // Display math placeholder
+    const dmathMatch = line.match(/^%%DMATH_(\d+)%%$/);
+    if (dmathMatch) {
+      flushList();
+      flushBlockquote();
+      const math = displayMath[parseInt(dmathMatch[1])];
+      html += `<div class="math math-display">$$${escapeHtml(math)}$$</div>`;
+      continue;
+    }
 
     // Code block placeholder
     const codeMatch = line.match(/^%%CODEBLOCK_(\d+)%%$/);
@@ -253,6 +273,22 @@ function renderInline(text) {
     return `%%ICODE${idx}%%`;
   });
 
+  // Math (protect $$...$$ and $...$ before *, _, etc. corrupt them)
+  const mathSpans = [];
+  // $$...$$ first (greedy, for display math appearing inline or in lists)
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (match) => {
+    const idx = mathSpans.length;
+    mathSpans.push(match);
+    return `%%MATHX${idx}%%`;
+  });
+  // Then $...$ (inline math — opening $ not followed by digit/space).
+  // This avoids matching currency amounts like $100.
+  text = text.replace(/\$(?=[^\d\s])[^$\n]+?(?<=\S)\$/g, (match) => {
+    const idx = mathSpans.length;
+    mathSpans.push(match);
+    return `%%MATHX${idx}%%`;
+  });
+
   // Images (before links so ![...](...) isn't caught by link regex)
   text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="inline-image">');
 
@@ -275,6 +311,9 @@ function renderInline(text) {
 
   // Auto-link bare URLs
   text = text.replace(/(^|[^"'])(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+
+  // Restore math (before inline code so math inside code stays as code)
+  text = text.replace(/%%MATHX(\d+)%%/g, (_, idx) => mathSpans[parseInt(idx)]);
 
   // Restore inline code
   text = text.replace(/%%ICODE(\d+)%%/g, (_, idx) => codeSpans[parseInt(idx)]);
