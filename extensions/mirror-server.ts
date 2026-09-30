@@ -919,7 +919,14 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
         return;
       }
       try {
-        const stat = fs.statSync(filePath);
+        const resolvedFilePath = path.resolve(filePath);
+        const allowedPreviewRoot = path.resolve(process.cwd());
+        if (resolvedFilePath !== allowedPreviewRoot && !resolvedFilePath.startsWith(allowedPreviewRoot + path.sep)) {
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Forbidden: path outside allowed directory" }));
+          return;
+        }
+        const stat = fs.statSync(resolvedFilePath);
         if (!stat.isFile()) throw new Error("Not a file");
         res.writeHead(200, { "Content-Type": mimeType, "Cache-Control": "max-age=60" });
         fs.createReadStream(filePath).pipe(res);
@@ -994,6 +1001,16 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
         const filesUrl = new URL(`http://localhost${req.url}`);
         const explicitPath = filesUrl.searchParams.get("path");
         let dirPath = explicitPath || process.cwd();
+        if (explicitPath) {
+          const resolvedDirPath = path.resolve(explicitPath);
+          const allowedRoot = path.resolve(process.cwd());
+          if (resolvedDirPath !== allowedRoot && !resolvedDirPath.startsWith(allowedRoot + path.sep)) {
+            res.writeHead(403, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Forbidden: path outside allowed directory" }));
+            return;
+          }
+          dirPath = resolvedDirPath;
+        }
         if (!explicitPath && latestCtx) {
           try {
             const entries = latestCtx.sessionManager.getEntries();
