@@ -23,6 +23,13 @@ Tau connects to your running Pi TUI and gives you a second view in the browser. 
 
 Tau is no longer maintained. No further features, bug fixes, or releases are planned, and new contributions will not be reviewed or merged. The code remains available under the [MIT license](LICENSE) for anyone who wants to fork it.
 
+**Maintained fork:** development continues at [Elompenta/tau-mirror](https://github.com/Elompenta/tau-mirror), published on npm as [`@elompenta/tau-mirror`](https://www.npmjs.com/package/@elompenta/tau-mirror). It is maintained and supported there, and bug reports and pull requests are welcome. To switch from this package:
+
+```bash
+pi remove npm:tau-mirror
+pi install npm:@elompenta/tau-mirror
+```
+
 The installation and usage instructions below are retained for reference. Tau can access and control your Pi session; do not expose it to the public internet. Authentication is optional and the default bind address is `0.0.0.0`. See [#65](https://github.com/deflating/tau/issues/65) for the outstanding security cleanup.
 
 ## Install
