@@ -61,8 +61,11 @@ function findPublicDir(): string {
     };
 
     // 1) Common extension-relative paths
-    addCandidate(path.resolve(__dirname, "public"));
-    addCandidate(path.resolve(__dirname, "../public"));
+    // __dirname is provided by jiti at runtime; guard it for plain ESM contexts (e.g. tests).
+    if (typeof __dirname !== "undefined") {
+      addCandidate(path.resolve(__dirname, "public"));
+      addCandidate(path.resolve(__dirname, "../public"));
+    }
 
     // 2) Installed package path (for npm-installed extension execution)
     try {
@@ -212,6 +215,37 @@ function sendAuthRequired(res: http.ServerResponse) {
     "Content-Type": "application/json",
   });
   res.end(JSON.stringify({ error: "Unauthorized" }));
+}
+
+// ═══════════════════════════════════════
+// Path containment allow-list (CWE-22 fix)
+// ═══════════════════════════════════════
+export function isPathWithinRoot(targetPath: string, rootPath: string): boolean {
+  const target = path.resolve(targetPath);
+  const root = path.resolve(rootPath);
+  return target === root || target.startsWith(root + path.sep);
+}
+
+export function resolveAllowedRoots(ctx: { cwd?: string | null; sessionEntries?: any[] } | null): string[] {
+  const roots = new Set<string>();
+  if (ctx?.cwd) roots.add(path.resolve(ctx.cwd));
+  if (ctx?.sessionEntries) {
+    const sessionEntry = ctx.sessionEntries.find((e: any) => e.type === "session");
+    if (sessionEntry?.cwd) roots.add(path.resolve(sessionEntry.cwd));
+  }
+  // Configurable allow-list for browsing additional directories, PATH-delimited.
+  const extra = process.env.TAU_ALLOWED_ROOTS;
+  if (extra) {
+    for (const p of extra.split(path.delimiter)) {
+      if (p.trim()) roots.add(path.resolve(p.trim()));
+    }
+  }
+  if (roots.size === 0) roots.add(path.resolve(process.cwd()));
+  return Array.from(roots);
+}
+
+export function isPathAllowed(targetPath: string, roots: string[]): boolean {
+  return roots.some((root) => isPathWithinRoot(targetPath, root));
 }
 
 export default function (pi: ExtensionAPI) {
@@ -918,18 +952,32 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
         res.end(JSON.stringify({ error: "Not a previewable image" }));
         return;
       }
+      let sessionEntries: any[] = [];
+      if (latestCtx) {
+        try { sessionEntries = latestCtx.sessionManager.getEntries(); } catch {}
+      }
+      const roots = resolveAllowedRoots({ cwd: latestCtx?.cwd, sessionEntries });
+      if (!isPathAllowed(filePath, roots)) {
+        res.writeHead(403, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "Forbidden: path outside allowed directories" }));
+        return;
+      }
+      let resolvedFilePath = path.resolve(filePath);
       try {
-        const resolvedFilePath = path.resolve(filePath);
-        const allowedPreviewRoot = path.resolve(process.cwd());
-        if (resolvedFilePath !== allowedPreviewRoot && !resolvedFilePath.startsWith(allowedPreviewRoot + path.sep)) {
-          res.writeHead(403, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "Forbidden: path outside allowed directory" }));
-          return;
+        // Re-check against the real path to catch symlinks that escape the allow-list.
+        if (fs.existsSync(resolvedFilePath)) {
+          const realPath = fs.realpathSync(resolvedFilePath);
+          if (!isPathAllowed(realPath, roots)) {
+            res.writeHead(403, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Forbidden: path outside allowed directories" }));
+            return;
+          }
+          resolvedFilePath = realPath;
         }
         const stat = fs.statSync(resolvedFilePath);
         if (!stat.isFile()) throw new Error("Not a file");
         res.writeHead(200, { "Content-Type": mimeType, "Cache-Control": "max-age=60" });
-        fs.createReadStream(filePath).pipe(res);
+        fs.createReadStream(resolvedFilePath).pipe(res);
       } catch (err: any) {
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: err.message }));
@@ -1000,25 +1048,22 @@ img{border-radius:12px}a{color:#b87a5c;font-size:18px;margin-top:16px}p{color:rg
       try {
         const filesUrl = new URL(`http://localhost${req.url}`);
         const explicitPath = filesUrl.searchParams.get("path");
-        let dirPath = explicitPath || process.cwd();
-        if (explicitPath) {
-          const resolvedDirPath = path.resolve(explicitPath);
-          const allowedRoot = path.resolve(process.cwd());
-          if (resolvedDirPath !== allowedRoot && !resolvedDirPath.startsWith(allowedRoot + path.sep)) {
-            res.writeHead(403, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "Forbidden: path outside allowed directory" }));
-            return;
-          }
-          dirPath = resolvedDirPath;
+        let sessionEntries: any[] = [];
+        if (latestCtx) {
+          try { sessionEntries = latestCtx.sessionManager.getEntries(); } catch {}
         }
-        if (!explicitPath && latestCtx) {
-          try {
-            const entries = latestCtx.sessionManager.getEntries();
-            const sessionEntry = entries.find((e: any) => e.type === "session");
-            if (sessionEntry?.cwd) dirPath = sessionEntry.cwd;
-          } catch {}
+        let dirPath = explicitPath;
+        if (!dirPath) {
+          const sessionEntry = sessionEntries.find((e: any) => e.type === "session");
+          dirPath = sessionEntry?.cwd || latestCtx?.cwd || process.cwd();
         }
-        serveFileList(res, dirPath);
+        const roots = resolveAllowedRoots({ cwd: latestCtx?.cwd, sessionEntries });
+        if (!isPathAllowed(dirPath, roots)) {
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Forbidden: path outside allowed directories" }));
+          return;
+        }
+        serveFileList(res, path.resolve(dirPath));
       } catch (err: any) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: err.message }));
