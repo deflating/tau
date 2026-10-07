@@ -11,6 +11,9 @@
   ],
   "author": "deflating",
   "license": "MIT",
+  "scripts": {
+    "test": "node --test --test-force-exit"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/deflating/tau.git"
